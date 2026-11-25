@@ -21,7 +21,21 @@ export default function VillagePicker({ value, onChange }) {
   const boxRef = useRef(null)
 
   useEffect(() => {
-    if (query.trim().length < 2) {
+    const trimmed = query.trim()
+
+    // After a village is picked the input holds its name, so that state is a
+    // selection to display rather than a query to search. Without this guard
+    // picking a village would immediately re-search for its own full name and
+    // reopen the dropdown over the choice just made.
+    if (value && trimmed === value.display_name) {
+      setResults([])
+      setBusy(false)
+      setError(null)
+      setOpen(false)
+      return
+    }
+
+    if (trimmed.length < 2) {
       setResults([])
       setBusy(false)
       setError(null)
@@ -32,7 +46,7 @@ export default function VillagePicker({ value, onChange }) {
     setBusy(true)
     const timer = setTimeout(async () => {
       try {
-        const found = await searchLocations(query.trim())
+        const found = await searchLocations(trimmed)
         if (cancelled) return
         setResults(found)
         setOpen(true)
@@ -58,11 +72,24 @@ export default function VillagePicker({ value, onChange }) {
 
   function choose(place) {
     onChange(place)
-    setQuery('')
+    // Show the chosen village in the input itself, so the field states the
+    // answer instead of emptying and leaving the choice in a caption below.
+    setQuery(place.display_name)
     setResults([])
     setOpen(false)
     // Return focus to the input so the keyboard flow continues naturally.
     boxRef.current?.focus()
+  }
+
+  function handleFocus(event) {
+    // With a village already chosen, select its name so typing replaces it
+    // rather than appending to it — the farmer is searching for a new one, not
+    // editing the name of the current one.
+    if (value && query === value.display_name) {
+      event.target.select()
+      return
+    }
+    if (results.length) setOpen(true)
   }
 
   return (
@@ -80,15 +107,15 @@ export default function VillagePicker({ value, onChange }) {
         placeholder="जैसे: पटना"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => results.length && setOpen(true)}
+        onFocus={handleFocus}
         aria-describedby="village-help"
       />
 
       <p className="notes" id="village-help" style={{ margin: 'var(--space-1) 0 0' }}>
-        {value
-          ? `चुना गया: ${value.display_name}`
-          : busy
-            ? 'खोज रहे हैं…'
+        {busy
+          ? 'खोज रहे हैं…'
+          : value
+            ? 'बदलने के लिए दूसरा नाम लिखें'
             : 'गाँव का नाम लिखना शुरू करें'}
       </p>
 
