@@ -114,6 +114,21 @@ def test_advice_rejects_an_irrigation_date_before_sowing():
     assert response.status_code == 422
 
 
+def test_advice_rejects_an_unknown_soil():
+    today = date.today()
+    response = client.post(
+        "/api/advice",
+        json={
+            "crop": "wheat",
+            "sowing_date": str(today - timedelta(days=30)),
+            "soil": "peat",
+            "latitude": 25.594,
+            "longitude": 85.136,
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_advice_returns_a_real_decision():
     try:
         response = client.post(
@@ -145,6 +160,12 @@ def test_advice_returns_a_real_decision():
     # none rather than leaving the assumption implicit.
     assert body["last_irrigation_date"] is None
     assert any("सिंचाई नहीं हुई" in line for line in body["assumptions"])
+    # No soil was sent either, so the response must name the loam fallback and
+    # flag it as assumed rather than silently presenting it as the farmer's.
+    assert body["soil"] == "loam"
+    assert body["soil_is_default"] is True
+    assert body["soil_available_water_mm_per_m"] > 0
+    assert any("नहीं चुना गया" in line for line in body["assumptions"])
     if body["action"] == "IRRIGATE_TODAY":
         assert body["litres_per_acre"] > 0
         assert body["gross_mm"] >= body["net_mm"]

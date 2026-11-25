@@ -199,6 +199,17 @@ export default function AdviceCard({ advice, language, onLanguageChange }) {
           यह सलाह किस आधार पर
         </h3>
         <p style={{ margin: '0 0 var(--space-1)', fontSize: 'var(--text-xs)' }}>
+          मिट्टी:{' '}
+          <strong>
+            {language === 'hi' ? advice.soil_name_hi : advice.soil_name_en}
+          </strong>{' '}
+          · उपलब्ध पानी{' '}
+          <strong className="tabular-nums">{advice.soil_available_water_mm_per_m} मिमी/मीटर</strong>
+          {advice.soil_is_default && (
+            <span> · मिट्टी नहीं चुनी, दोमट मानी गई</span>
+          )}
+        </p>
+        <p style={{ margin: '0 0 var(--space-1)', fontSize: 'var(--text-xs)' }}>
           मिट्टी की नमी की कमी: <strong className="tabular-nums">{advice.depletion_mm} मिमी</strong>{' '}
           / सिंचाई की सीमा{' '}
           <strong className="tabular-nums">{advice.raw_mm} मिमी</strong> · कुल उपलब्ध पानी{' '}

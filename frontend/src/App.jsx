@@ -24,6 +24,12 @@ const CROPS = [
   { key: 'rice', labelHi: 'धान', labelEn: 'Rice' },
 ]
 
+const SOILS = [
+  { key: 'sandy', labelHi: 'रेतीली', labelEn: 'Sandy' },
+  { key: 'loam', labelHi: 'दोमट', labelEn: 'Loam' },
+  { key: 'clay', labelHi: 'चिकनी', labelEn: 'Clay' },
+]
+
 function todayISO() {
   const now = new Date()
   // Local date, not UTC: a farmer sowing "today" means their today.
@@ -48,6 +54,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [language, setLanguage] = useState('hi')
   const [lastIrrigation, setLastIrrigation] = useState('')
+  const [soil, setSoil] = useState('')
 
   const resultRef = useRef(null)
   const maxDate = useMemo(todayISO, [])
@@ -65,6 +72,7 @@ export default function App() {
         crop,
         sowingDate,
         location,
+        soil: soil || null,
         lastIrrigationDate: lastIrrigation || null,
       })
       setAdvice(fresh)
@@ -143,6 +151,30 @@ export default function App() {
               onChange={(event) => setSowingDate(event.target.value)}
               required
             />
+          </div>
+
+          <div className="field">
+            <span className="field-label" id="soil-label">
+              मिट्टी का प्रकार
+            </span>
+            <div className="choices" role="group" aria-labelledby="soil-label">
+              {SOILS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className="choice"
+                  aria-pressed={soil === option.key}
+                  onClick={() => setSoil(soil === option.key ? '' : option.key)}
+                >
+                  {option.labelHi}
+                </button>
+              ))}
+            </div>
+            <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+              {soil
+                ? 'आपकी मिट्टी के हिसाब से पानी की मात्रा तय होगी।'
+                : 'न चुनें तो दोमट माना जाएगा और सलाह में यह लिखा रहेगा।'}
+            </p>
           </div>
 
           <div className="field">

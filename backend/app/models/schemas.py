@@ -75,6 +75,10 @@ class AdviceRequest(BaseModel):
             "sowing, which it then says out loud."
         ),
     )
+    soil: str | None = Field(
+        default=None,
+        description="sandy, loam or clay. Omitted means loam, which the advice states.",
+    )
 
 
 class AdvisoryWindow(BaseModel):
@@ -149,6 +153,12 @@ class AdviceResponse(BaseModel):
     # irrigation since sowing. The UI states that assumption rather than
     # leaving it implicit.
     last_irrigation_date: str | None = None
+
+    soil: str
+    soil_name_hi: str
+    soil_name_en: str
+    soil_available_water_mm_per_m: float
+    soil_is_default: bool
 
     assumptions: list[str]
     sources: list[str]

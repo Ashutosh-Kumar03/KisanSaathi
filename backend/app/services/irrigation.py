@@ -32,7 +32,8 @@ What this engine cannot know, and therefore states rather than guesses:
     `depletion_start_mm` (0 = field capacity, the usual state after a sowing
     irrigation) and reports how much of the season it actually covered, so the
     UI can say "assumed" rather than implying measured soil moisture.
-  * Soil type. A loam default is used and surfaced as an assumption chip.
+  * Soil type. The farmer picks one of three, which sets the water capacity;
+    when they pick none it falls back to loam and says so.
   * Anything about the farm's actual water supply, pump, or labour.
 
 Effective rainfall is rain x RAIN_EFFECTIVENESS. A downpour partly runs off and
@@ -45,7 +46,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from ..data import crop_rules
-from ..data.crop_rules import CropRules
+from ..data.crop_rules import CropRules, SoilType
 
 # Share of forecast rain counted as stored in the root zone. Runoff and
 # evaporation take the rest. Operational: no published figure is claimed.
@@ -134,6 +135,13 @@ class Advice:
     spray: ActionWindow
     urea: ActionWindow
     critical_window_source: str | None
+
+    # Which soil the balance used, and the water capacity that follows from it.
+    soil_key: str
+    soil_name_hi: str
+    soil_name_en: str
+    soil_available_water_mm_per_m: float
+    soil_is_default: bool
 
     # The date the balance was reset by a known irrigation, or None when the
     # farmer did not say. Surfaced to the UI because an unstated assumption
@@ -231,6 +239,7 @@ def advise(
     days: list[EngineDay],
     depletion_start_mm: float = 0.0,
     last_irrigation_date: date | None = None,
+    soil: SoilType | None = None,
 ) -> Advice:
     """Compute today's irrigation decision plus the per-day working behind it.
 
@@ -257,13 +266,18 @@ def advise(
         if last_irrigation_date < sowing_date:
             raise EngineInputError("last irrigation date is before sowing")
 
+    # An unset soil is loam, but the advice says so rather than letting the
+    # farmer believe their own soil was used.
+    soil_is_default = soil is None
+    soil = soil if soil is not None else crop_rules.LOAM
+
     ordered = sorted(days, key=lambda d: d.date)
     if ordered[-1].date < today:
         raise EngineInputError("weather data does not reach today")
 
     age_today = (today - sowing_date).days
 
-    taw = crop_rules.SOIL_AVAILABLE_WATER_MM_PER_M.value * crop.root_depth_m.value
+    taw = soil.available_water_mm_per_m * crop.root_depth_m.value
     raw = crop.depletion_fraction.value * taw
     efficiency = crop.application_efficiency.value
 
@@ -347,10 +361,16 @@ def advise(
     litres = int(round(gross_mm * LITRES_PER_MM_ACRE))
 
     assumptions = [
-        "मिट्टी: दोमट (loam), जलधारण 150 मिमी प्रति मीटर गहराई",
+        f"मिट्टी: {soil.name_hi} — {soil.fao_class} (FAO-56 तालिका 19), "
+        f"उपलब्ध पानी {soil.available_water_mm_per_m:.0f} मिमी प्रति मीटर गहराई",
         "सिंचाई विधि: बहाव/फ्लड, दक्षता 70%",
         "बारिश का 80% ही जड़ तक पहुँचता माना गया है (बहाव व वाष्पीकरण घटाकर)",
     ]
+    if soil_is_default:
+        assumptions.append(
+            "मिट्टी का प्रकार नहीं चुना गया, इसलिए दोमट (loam) माना गया है। "
+            "सही सलाह के लिए अपनी मिट्टी चुनें।"
+        )
     if trace and trace[0].age_days > 0:
         assumptions.append(
             f"बोने के बाद का पहला पूर्वानुमान {trace[0].age_days} दिन बाद से है; "
@@ -388,7 +408,8 @@ def advise(
         crop.kc_initial.source,
         crop.root_depth_m.source,
         crop.depletion_fraction.source,
-        crop_rules.SOIL_AVAILABLE_WATER_MM_PER_M.source,
+        soil.field_capacity.source,
+        soil.wilting_point.source,
     ]
     if window is not None:
         sources.append(window.source)
@@ -413,6 +434,11 @@ def advise(
         spray=_judge_spray(ordered, today),
         urea=_judge_urea(ordered, today),
         critical_window_source=window.source if window else None,
+        soil_key=soil.key,
+        soil_name_hi=soil.name_hi,
+        soil_name_en=soil.name_en,
+        soil_available_water_mm_per_m=soil.available_water_mm_per_m,
+        soil_is_default=soil_is_default,
         last_irrigation_date=last_irrigation_date,
         trace=tuple(trace),
         assumptions=tuple(assumptions),

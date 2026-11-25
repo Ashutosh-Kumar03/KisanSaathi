@@ -12,6 +12,8 @@ Sources used, and only these:
   * FAO-56 Table 12 — single crop coefficients (Kc).
   * FAO-56 Table 22 — maximum effective root depth (Zr) and the soil water
     depletion fraction (p) at which the crop starts to suffer stress.
+  * FAO-56 Table 19 — typical soil water characteristics (field capacity and
+    wilting point) by USDA texture class.
   * TNAU Agritech Portal, Crop Production — Wheat: critical irrigation stages.
   * OPERATIONAL — a threshold this app chose for itself. It has no published
     source, and the UI shows it to the farmer as an assumption rather than
@@ -42,6 +44,10 @@ FAO56_T22 = (
 TNAU_WHEAT = (
     "TNAU Agritech Portal, Crop Production — Wheat (after cultivation): "
     "critical irrigation stages"
+)
+FAO56_T19 = (
+    "FAO-56 (Allen et al. 1998), Table 19 — typical soil water characteristics by "
+    "USDA soil texture class"
 )
 OPERATIONAL = (
     "Operational threshold set for this app — no published source; shown to the "
@@ -159,19 +165,91 @@ class CropRules:
         return None
 
 
-# --- shared soil and application assumptions -------------------------------
+# --- soil water capacity ---------------------------------------------------
 
-# Available water capacity of a loam topsoil, in mm of water per metre of soil.
-# Shown in the UI as a visible assumption chip, never hidden: a farmer on a
-# different soil is told the number the advice rests on.
-SOIL_AVAILABLE_WATER_MM_PER_M = Rule(
-    value=150.0,
-    source=OPERATIONAL,
-    note=(
-        "loam default; TAW = 150 mm/m x root depth. The UI labels this as an "
-        "assumption so it is never mistaken for a measured soil test"
-    ),
+# Field capacity and wilting point by soil type, from FAO-56 Table 19, which
+# tabulates each as a RANGE rather than a single number. A range is useless to
+# an arithmetic engine, so these are the midpoints of the tabulated ranges and
+# the note on each value says so. Read directly from the table:
+#
+#   USDA class      theta_FC        theta_WP
+#   Sandy loam      0.18 - 0.28     0.06 - 0.16
+#   Loam            0.20 - 0.30     0.07 - 0.17
+#   Clay            0.32 - 0.40     0.20 - 0.24
+#
+# Table 19 has no class called plain "sandy" or "clay" in the loose sense the
+# Hindi labels imply: it uses USDA texture classes. "Sandy" therefore maps to
+# the Sandy loam row, which is named in `fao_class` on each soil so a reviewer
+# can see exactly which row was used rather than having to trust the label.
+# Pure "Sand" (holding only 0.05-0.11 m/m) is not a realistic field soil and is
+# deliberately not offered.
+
+
+@dataclass(frozen=True)
+class SoilType:
+    """A soil's water-holding capacity, as the engine needs it.
+
+    Field capacity and wilting point are stored as volumetric fractions
+    (m3/m3), which is the form Table 19 gives them. The available water the
+    engine actually uses is their difference, computed rather than stored, so
+    the two tabulated numbers stay the single source.
+    """
+
+    key: str
+    name_hi: str
+    name_en: str
+    fao_class: str
+    field_capacity: Rule
+    wilting_point: Rule
+
+    @property
+    def available_water_mm_per_m(self) -> float:
+        """Readily stored water in mm per metre of soil depth.
+
+        (theta_FC - theta_WP) is a fraction of a metre; x1000 gives mm per
+        metre of root zone.
+        """
+        return round((self.field_capacity.value - self.wilting_point.value) * 1000, 1)
+
+
+SANDY = SoilType(
+    key="sandy",
+    name_hi="रेतीली",
+    name_en="Sandy",
+    fao_class="Sandy loam",
+    field_capacity=Rule(0.23, FAO56_T19, "midpoint of the Sandy loam range 0.18-0.28"),
+    wilting_point=Rule(0.11, FAO56_T19, "midpoint of the Sandy loam range 0.06-0.16"),
 )
+
+LOAM = SoilType(
+    key="loam",
+    name_hi="दोमट",
+    name_en="Loam",
+    fao_class="Loam",
+    field_capacity=Rule(0.25, FAO56_T19, "midpoint of the Loam range 0.20-0.30"),
+    wilting_point=Rule(0.12, FAO56_T19, "midpoint of the Loam range 0.07-0.17"),
+)
+
+CLAY = SoilType(
+    key="clay",
+    name_hi="चिकनी",
+    name_en="Clay",
+    fao_class="Clay",
+    field_capacity=Rule(0.36, FAO56_T19, "midpoint of the Clay range 0.32-0.40"),
+    wilting_point=Rule(0.22, FAO56_T19, "midpoint of the Clay range 0.20-0.24"),
+)
+
+SOILS: dict[str, SoilType] = {s.key: s for s in (SANDY, LOAM, CLAY)}
+DEFAULT_SOIL_KEY = "loam"
+
+
+def get_soil(key: str | None) -> SoilType:
+    """Look a soil up by key, falling back to loam when unset or unrecognised.
+
+    Returning the default rather than None keeps the engine total: there is
+    always a soil, and the advice always says which one it used.
+    """
+    return SOILS.get((key or DEFAULT_SOIL_KEY).strip().lower(), LOAM)
 
 # Spray and fertiliser decision thresholds. These are this app's own judgement
 # calls, and are labelled as such rather than dressed in a citation.

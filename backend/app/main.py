@@ -110,6 +110,12 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             status_code=422, detail="Sowing date cannot be in the future."
         )
 
+    if request.soil is not None and crop_rules.get_soil(request.soil).key != request.soil.strip().lower():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported soil '{request.soil}'. Supported: sandy, loam, clay.",
+        )
+
     if request.last_irrigation_date is not None:
         # Validate before spending a forecast call, and reject a date the
         # engine would have to silently ignore.
@@ -155,6 +161,7 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             today,
             engine_days,
             last_irrigation_date=request.last_irrigation_date,
+            soil=crop_rules.get_soil(request.soil) if request.soil else None,
         )
     except irrigation.EngineInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -226,6 +233,11 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             for row in advice.trace
         ],
         assumptions=list(advice.assumptions),
+        soil=advice.soil_key,
+        soil_name_hi=advice.soil_name_hi,
+        soil_name_en=advice.soil_name_en,
+        soil_available_water_mm_per_m=advice.soil_available_water_mm_per_m,
+        soil_is_default=advice.soil_is_default,
         last_irrigation_date=(
             advice.last_irrigation_date.isoformat()
             if advice.last_irrigation_date

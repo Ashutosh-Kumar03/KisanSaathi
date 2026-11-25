@@ -422,6 +422,101 @@ def test_stage_lengths_match_the_tables():
     assert (RICE.stages.initial, RICE.stages.development, RICE.stages.mid, RICE.stages.late) == (30, 30, 60, 30)
 
 
-def test_soil_default_is_declared_operational():
-    assert crop_rules.SOIL_AVAILABLE_WATER_MM_PER_M.value == 150.0
-    assert "Operational" in crop_rules.SOIL_AVAILABLE_WATER_MM_PER_M.source
+# --- soil types -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "soil_key,expected_mm_per_m,expected_class",
+    [
+        # (theta_FC - theta_WP) x 1000, from the Table 19 midpoints in the
+        # data file: sandy (sandy loam) 0.23-0.11, loam 0.25-0.12, clay 0.36-0.22.
+        ("sandy", 120.0, "Sandy loam"),
+        ("loam", 130.0, "Loam"),
+        ("clay", 140.0, "Clay"),
+    ],
+)
+def test_each_soil_has_its_own_water_capacity(soil_key, expected_mm_per_m, expected_class):
+    soil = crop_rules.get_soil(soil_key)
+    assert soil.available_water_mm_per_m == expected_mm_per_m
+    assert soil.fao_class == expected_class
+    # Every soil value cites FAO-56 Table 19, not an operational guess.
+    assert "Table 19" in soil.field_capacity.source
+    assert "Table 19" in soil.wilting_point.source
+
+
+@pytest.mark.parametrize("soil_key", ["sandy", "loam", "clay"])
+def test_soil_changes_taw_but_not_the_rule(soil_key):
+    """TAW must follow the soil; the stress rule itself must not move."""
+    today = SOWING + timedelta(days=30)
+    soil = crop_rules.get_soil(soil_key)
+    advice = advise(WHEAT, SOWING, today, dry(today + timedelta(days=7)), soil=soil)
+
+    expected_taw = soil.available_water_mm_per_m * WHEAT.root_depth_m.value
+    assert advice.taw_mm == pytest.approx(expected_taw, abs=0.15)
+    # RAW is still p x TAW for the crop, whatever the soil.
+    assert advice.raw_mm == pytest.approx(
+        expected_taw * WHEAT.depletion_fraction.value, abs=0.15
+    )
+    assert advice.soil_key == soil_key
+    assert advice.soil_is_default is False
+
+
+def test_sandy_soil_stresses_sooner_than_clay():
+    """The point of the input: less stored water means stress is reached earlier.
+
+    Asserted as "which day first triggers", not "whether it ever does": given a
+    long enough dry spell, every soil eventually runs out of water, so a test
+    that froze one soil at SOIL_MOISTURE_OK would only be measuring how long the
+    spell was.
+    """
+
+    def first_irrigation_day(soil):
+        for age in range(1, 60):
+            today = SOWING + timedelta(days=age)
+            advice = advise(WHEAT, SOWING, today, dry(today + timedelta(days=3)), soil=soil)
+            if advice.action == "IRRIGATE_TODAY":
+                return age
+        return None
+
+    sandy_day = first_irrigation_day(crop_rules.SANDY)
+    loam_day = first_irrigation_day(crop_rules.LOAM)
+    clay_day = first_irrigation_day(crop_rules.CLAY)
+
+    assert sandy_day is not None and clay_day is not None
+    assert sandy_day < loam_day < clay_day, (sandy_day, loam_day, clay_day)
+
+    # And on the day sandy first needs water, clay is still comfortable.
+    today = SOWING + timedelta(days=sandy_day)
+    days = dry(today + timedelta(days=3))
+    assert advise(WHEAT, SOWING, today, days, soil=crop_rules.SANDY).action == "IRRIGATE_TODAY"
+    assert advise(WHEAT, SOWING, today, days, soil=crop_rules.CLAY).action == "SOIL_MOISTURE_OK"
+
+
+def test_unset_soil_falls_back_to_loam_and_says_so():
+    today = SOWING + timedelta(days=30)
+    advice = advise(WHEAT, SOWING, today, dry(today + timedelta(days=7)))
+
+    assert advice.soil_key == "loam"
+    assert advice.soil_is_default is True
+    joined = " ".join(advice.assumptions)
+    assert "नहीं चुना गया" in joined  # says the soil was assumed
+
+
+def test_chosen_soil_does_not_claim_it_was_assumed():
+    today = SOWING + timedelta(days=30)
+    advice = advise(
+        WHEAT, SOWING, today, dry(today + timedelta(days=7)), soil=crop_rules.CLAY
+    )
+    joined = " ".join(advice.assumptions)
+    assert "नहीं चुना गया" not in joined
+    assert "चिकनी" in joined
+
+
+@pytest.mark.parametrize("key,expected", [("SANDY", "sandy"), (" clay ", "clay"), ("loam", "loam")])
+def test_soil_lookup_normalises_case_and_space(key, expected):
+    assert crop_rules.get_soil(key).key == expected
+
+
+def test_unknown_soil_falls_back_to_loam():
+    assert crop_rules.get_soil("peat").key == "loam"
+    assert crop_rules.get_soil(None).key == "loam"

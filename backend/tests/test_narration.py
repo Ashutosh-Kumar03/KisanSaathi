@@ -9,7 +9,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.data.crop_rules import RICE, WHEAT
+from app.data.crop_rules import CLAY, RICE, SANDY, WHEAT
 from app.services.irrigation import EngineDay, advise
 from app.services.narration import (
     ACTION_IRRIGATE,
@@ -19,6 +19,7 @@ from app.services.narration import (
     format_indian,
     headline,
     narrate,
+    soil_line,
 )
 
 SOWING = date(2026, 11, 1)
@@ -98,6 +99,38 @@ def test_headlines_differ_per_action():
     headlines = [headline(a) for a in actions]
     assert len({h[0] for h in headlines}) == 4
     assert len({h[1] for h in headlines}) == 4
+
+
+@pytest.mark.parametrize(
+    "soil,expected_hi,expected_en",
+    [
+        (SANDY, "रेतीली", "Sandy"),
+        (CLAY, "चिकनी", "Clay"),
+    ],
+)
+def test_soil_line_names_the_chosen_soil_in_both_languages(soil, expected_hi, expected_en):
+    today = SOWING + timedelta(days=30)
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 5.0, 0.0, 5.0)
+        for i in range((today + timedelta(days=3) - SOWING).days + 1)
+    ]
+    advice = advise(WHEAT, SOWING, today, days, soil=soil)
+
+    hindi, english = soil_line(advice)
+    assert expected_hi in hindi
+    assert expected_en in english
+    assert any("\u0900" <= ch <= "\u097F" for ch in hindi)
+    assert hindi != english
+
+
+def test_soil_line_says_when_loam_was_assumed():
+    advice = _advice(WHEAT, 30, 5.0)
+    assert advice.soil_is_default
+    hindi, english = soil_line(advice)
+    assert "दोमट" in hindi
+    assert "loam" in english.lower()
+    assert "नहीं चुनी" in hindi
+    assert "assumed" in english.lower()
 
 
 def test_critical_window_is_mentioned_when_active():

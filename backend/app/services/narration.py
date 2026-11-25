@@ -164,6 +164,26 @@ def over_english(advice: Advice) -> str:
     )
 
 
+def soil_line(advice: Advice) -> tuple[str, str]:
+    """Which soil the balance used, and whether it was assumed.
+
+    Stated in both languages because it changes the answer rather than merely
+    annotating it: sandy soil holds far less water than clay, so the same
+    forecast can mean irrigate on one and wait on the other.
+    """
+    capacity = f"{advice.soil_available_water_mm_per_m:.0f} mm/m"
+    if advice.soil_is_default:
+        return (
+            f"मिट्टी नहीं चुनी गई, इसलिए दोमट (loam) मानी गई — उपलब्ध पानी {capacity}।",
+            f"No soil was chosen, so loam is assumed — {capacity} of available water.",
+        )
+    return (
+        f"मिट्टी: {advice.soil_name_hi} ({advice.soil_name_en}), "
+        f"उपलब्ध पानी {capacity}।",
+        f"Soil: {advice.soil_name_en} — {capacity} of available water.",
+    )
+
+
 def narrate(advice: Advice) -> tuple[str, str]:
     """Return (hindi, english) for an advice.
 
