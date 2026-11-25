@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="KisanSaathi">
+  <!--
+    A water drop on the app's own accent green (--accent, #24603f in the light
+    token set). A drop rather than a wheat ear because at 16x16 a wheat ear
+    turns into noise, while a single filled shape stays legible.
+  -->
+  <rect width="32" height="32" rx="7" fill="#24603f" />
+  <path
+    d="M16 7.5c3.6 4.2 5.9 7.3 5.9 10a5.9 5.9 0 0 1-11.8 0c0-2.7 2.3-5.8 5.9-10z"
+    fill="#faf8f3"
+  />
+</svg>
