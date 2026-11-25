@@ -18,6 +18,7 @@ from app.services.narration import (
     ACTION_WAIT_RAIN,
     format_indian,
     headline,
+    irrigation_line,
     narrate,
     soil_line,
 )
@@ -131,6 +132,55 @@ def test_soil_line_says_when_loam_was_assumed():
     assert "loam" in english.lower()
     assert "नहीं चुनी" in hindi
     assert "assumed" in english.lower()
+
+
+def test_irrigation_line_reports_the_amount_and_what_was_held():
+    today = SOWING + timedelta(days=30)
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 5.0, 0.0, 5.0)
+        for i in range((today + timedelta(days=3) - SOWING).days + 1)
+    ]
+    advice = advise(
+        WHEAT,
+        SOWING,
+        today,
+        days,
+        last_irrigation_date=today - timedelta(days=2),
+        last_irrigation_mm=500.0,
+    )
+
+    hindi, english = irrigation_line(advice)
+    assert "500" in hindi and "500" in english
+    # Both languages must disclose the loss, not just the happy half.
+    assert "बह गया" in hindi
+    assert "drained" in english
+    assert any("\u0900" <= ch <= "\u097F" for ch in hindi)
+
+
+def test_irrigation_line_omits_loss_when_the_soil_held_it_all():
+    today = SOWING + timedelta(days=30)
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 5.0, 0.0, 5.0)
+        for i in range((today + timedelta(days=3) - SOWING).days + 1)
+    ]
+    advice = advise(
+        WHEAT,
+        SOWING,
+        today,
+        days,
+        last_irrigation_date=today - timedelta(days=2),
+        last_irrigation_mm=10.0,
+    )
+    hindi, english = irrigation_line(advice)
+    assert "बह गया" not in hindi
+    assert "drained" not in english
+
+
+def test_irrigation_line_has_a_no_irrigation_case():
+    advice = _advice(WHEAT, 30, 5.0)
+    hindi, english = irrigation_line(advice)
+    assert "सिंचाई नहीं हुई" in hindi
+    assert "no irrigation" in english
 
 
 def test_critical_window_is_mentioned_when_active():

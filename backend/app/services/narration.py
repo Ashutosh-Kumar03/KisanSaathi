@@ -184,6 +184,42 @@ def soil_line(advice: Advice) -> tuple[str, str]:
     )
 
 
+def irrigation_line(advice: Advice) -> tuple[str, str]:
+    """What the balance assumed about the last irrigation.
+
+    Three distinct cases, and they must not be confused: no irrigation at all,
+    an irrigation refilling the profile, and a stated amount of which only part
+    was held by the soil. The third is the one worth spelling out — a farmer who
+    put down 80 mm on a field that was 20 mm short will otherwise believe they
+    banked 80.
+    """
+    if advice.last_irrigation_date is None:
+        return (
+            "यह सलाह मानती है कि बोने के बाद से सिंचाई नहीं हुई।",
+            "This advice assumes no irrigation since sowing.",
+        )
+
+    day = advice.last_irrigation_date.strftime("%d-%m-%Y")
+    if advice.last_irrigation_mm is None:
+        return (
+            f"गणना में माना गया: पिछली सिंचाई {day} को हुई थी और उससे मिट्टी में पानी पूरा भर गया।",
+            f"Calculated assuming you last irrigated on {day} and refilled the soil.",
+        )
+
+    applied = f"{advice.last_irrigation_mm:.0f} mm"
+    held = f"{advice.last_irrigation_effective_mm:.0f} mm"
+    lost = advice.last_irrigation_mm - advice.last_irrigation_effective_mm
+
+    hindi = (
+        f"गणना में माना गया: {day} को {applied} पानी दिया, जिसमें से {held} मिट्टी ने रोका"
+    )
+    english = f"Calculated assuming {applied} applied on {day}, of which the soil held {held}"
+    if lost > 0.5:
+        hindi += f"; बाकी {lost:.0f} मिमी जड़ों के नीचे बह गया"
+        english += f"; the remaining {lost:.0f} mm drained past the roots"
+    return hindi + "।", english + "."
+
+
 def narrate(advice: Advice) -> tuple[str, str]:
     """Return (hindi, english) for an advice.
 

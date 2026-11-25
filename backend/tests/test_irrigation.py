@@ -371,6 +371,113 @@ def test_rejects_impossible_irrigation_dates(offset_days, message):
     assert message in str(exc.value)
 
 
+# --- last irrigation amount --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "amount_mm,expected_action,expect_absorbed_full,note",
+    [
+        # Zero: the record exists but no water was actually applied, so the
+        # balance must be identical to never having been reset.
+        (0.0, "IRRIGATE_TODAY", None, "zero amount changes nothing"),
+        # Partial: 20 mm of a 119 mm deficit clears only part of it.
+        (20.0, "IRRIGATE_TODAY", 20.0, "partial amount only partly refills"),
+        # Comfortably more than the deficit: capped, and the crop is fine.
+        (500.0, "SOIL_MOISTURE_OK", None, "large amount is capped at the deficit"),
+    ],
+)
+def test_last_irrigation_amount(amount_mm, expected_action, expect_absorbed_full, note):
+    today = SOWING + timedelta(days=30)
+    last = today - timedelta(days=2)
+    advice = advise(
+        WHEAT,
+        SOWING,
+        today,
+        dry(today + timedelta(days=7)),
+        last_irrigation_date=last,
+        last_irrigation_mm=amount_mm,
+    )
+    assert advice.action == expected_action, f"{note}: got {advice.action}"
+    # Absorbed water can never exceed what was applied.
+    assert advice.last_irrigation_effective_mm <= amount_mm + 0.05
+    if expect_absorbed_full is not None:
+        assert advice.last_irrigation_effective_mm == pytest.approx(
+            expect_absorbed_full, abs=0.15
+        )
+
+
+def test_zero_amount_matches_no_irrigation_information_at_all():
+    """A recorded irrigation of 0 mm is the same as having forgotten to water."""
+    today = SOWING + timedelta(days=30)
+    last = today - timedelta(days=2)
+    days = dry(today + timedelta(days=7))
+
+    # With no date the engine assumes a refill, so compare against the dated
+    # case with zero, which must keep the deficit rather than wipe it.
+    dated_zero = advise(
+        WHEAT, SOWING, today, days, last_irrigation_date=last, last_irrigation_mm=0.0
+    )
+    refilled = advise(WHEAT, SOWING, today, days, last_irrigation_date=last)
+
+    assert dated_zero.depletion_mm > refilled.depletion_mm
+    assert dated_zero.last_irrigation_effective_mm == 0.0
+
+
+def test_amount_larger_than_depletion_is_capped_not_credited():
+    """Excess water drains past the roots and must not be banked as soil water."""
+    today = SOWING + timedelta(days=30)
+    last = today - timedelta(days=2)
+    days = dry(today + timedelta(days=7))
+
+    # Find the deficit the irrigation actually meets, by running without an
+    # amount but with the date so the reset is at the same point.
+    baseline = advise(WHEAT, SOWING, today, days, last_irrigation_date=last)
+
+    fat = advise(
+        WHEAT, SOWING, today, days, last_irrigation_date=last, last_irrigation_mm=500.0
+    )
+
+    # Absorbed can never exceed the depletion that was there to be filled.
+    assert fat.last_irrigation_effective_mm <= fat.taw_mm + 0.05
+    # And 500 mm of absorbed water would have been absurd: it was capped.
+    assert fat.last_irrigation_effective_mm < 500.0
+    # The advice is therefore identical to a full refill, not better than it.
+    assert fat.depletion_mm == pytest.approx(baseline.depletion_mm, abs=0.2)
+
+
+def test_percolation_loss_is_disclosed_only_when_it_happens():
+    today = SOWING + timedelta(days=30)
+    last = today - timedelta(days=2)
+    days = dry(today + timedelta(days=7))
+
+    wasteful = advise(
+        WHEAT, SOWING, today, days, last_irrigation_date=last, last_irrigation_mm=500.0
+    )
+    frugal = advise(
+        WHEAT, SOWING, today, days, last_irrigation_date=last, last_irrigation_mm=10.0
+    )
+
+    assert "बह गया" in " ".join(wasteful.assumptions)
+    assert "बह गया" not in " ".join(frugal.assumptions)
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"last_irrigation_mm": 20.0}, "needs a last irrigation date"),
+        (
+            {"last_irrigation_date": SOWING + timedelta(days=2), "last_irrigation_mm": -5.0},
+            "cannot be negative",
+        ),
+    ],
+)
+def test_rejects_impossible_irrigation_amounts(kwargs, message):
+    today = SOWING + timedelta(days=30)
+    with pytest.raises(EngineInputError) as exc:
+        advise(WHEAT, SOWING, today, dry(today + timedelta(days=3)), **kwargs)
+    assert message in str(exc.value)
+
+
 # --- inputs the engine must refuse ----------------------------------------
 
 

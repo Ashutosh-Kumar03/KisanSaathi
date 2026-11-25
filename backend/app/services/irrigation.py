@@ -147,6 +147,8 @@ class Advice:
     # farmer did not say. Surfaced to the UI because an unstated assumption
     # about soil moisture is exactly the kind of thing that should be visible.
     last_irrigation_date: date | None
+    last_irrigation_mm: float | None
+    last_irrigation_effective_mm: float
 
     trace: tuple[DayTrace, ...]
     assumptions: tuple[str, ...]
@@ -239,6 +241,7 @@ def advise(
     days: list[EngineDay],
     depletion_start_mm: float = 0.0,
     last_irrigation_date: date | None = None,
+    last_irrigation_mm: float | None = None,
     soil: SoilType | None = None,
 ) -> Advice:
     """Compute today's irrigation decision plus the per-day working behind it.
@@ -265,6 +268,11 @@ def advise(
             raise EngineInputError("last irrigation date is in the future")
         if last_irrigation_date < sowing_date:
             raise EngineInputError("last irrigation date is before sowing")
+    if last_irrigation_mm is not None:
+        if last_irrigation_mm < 0:
+            raise EngineInputError("last irrigation amount cannot be negative")
+        if last_irrigation_date is None:
+            raise EngineInputError("last irrigation amount needs a last irrigation date")
 
     # An unset soil is loam, but the advice says so rather than letting the
     # farmer believe their own soil was used.
@@ -283,6 +291,10 @@ def advise(
 
     trace: list[DayTrace] = []
     depletion = max(depletion_start_mm, 0.0)
+    # Recorded when the irrigation lands, so the advice can say how much of a
+    # stated amount the soil actually kept and how much drained past the roots.
+    irrigation_absorbed_mm = 0.0
+    irrigation_percolated_mm = 0.0
 
     for day in ordered:
         age = (day.date - sowing_date).days
@@ -295,13 +307,29 @@ def advise(
         etc = kc * day.et0_mm
         effective_rain = day.rain_mm * RAIN_EFFECTIVENESS
 
-        # A known irrigation refills the root zone to field capacity, so the
-        # deficit restarts at zero on that date. Applied before the day's own
-        # demand rather than after, so the day the farmer actually watered
-        # still counts the water the crop drew that day -- the water was given
-        # in the morning, not at midnight.
+        # A known irrigation refills the root zone, so the deficit drops on
+        # that date. Two pieces of information can say by how much:
+        #
+        #   * the amount, in mm, when the farmer knows it. Adding water beyond
+        #     what the soil can hold is not stored -- it drains past the roots
+        #     -- so the credit is capped at the current depletion. Capping
+        #     matters: without it a generous 80 mm on a field that was only
+        #     20 mm short would push depletion to -60 and hand out two free
+        #     weeks of "no need to irrigate" that the soil never held.
+        #   * nothing but the date, in which case the original behaviour is
+        #     kept and the profile is assumed refilled to field capacity.
+        #
+        # Applied before the day's own demand rather than after, so the day
+        # the farmer actually watered still counts the water the crop drew
+        # that day -- the water was given in the morning, not at midnight.
         if last_irrigation_date is not None and day.date == last_irrigation_date:
-            depletion = 0.0
+            if last_irrigation_mm is None:
+                depletion = 0.0
+            else:
+                absorbed = min(last_irrigation_mm, depletion)
+                irrigation_absorbed_mm = absorbed
+                irrigation_percolated_mm = last_irrigation_mm - absorbed
+                depletion = max(0.0, depletion - absorbed)
 
         start_depletion = depletion
         depletion = depletion - effective_rain + etc
@@ -390,11 +418,25 @@ def advise(
             "यह सलाह मानती है कि बोने के बाद से अब तक सिंचाई नहीं हुई है। "
             "अगर सिंचाई की थी, तो तारीख डालकर सलाह फिर लें।"
         )
-    elif reset_covered:
+    elif reset_covered and last_irrigation_mm is None:
         assumptions.append(
             f"पिछली सिंचाई {last_irrigation_date.strftime('%d-%m-%Y')} को मानी गई है; "
             "उस दिन मिट्टी में पानी पूरा (कमी शून्य) माना गया है"
         )
+    elif reset_covered:
+        line = (
+            f"पिछली सिंचाई {last_irrigation_date.strftime('%d-%m-%Y')} को "
+            f"{last_irrigation_mm:.0f} मिमी दी गई मानी गई; उसमें से "
+            f"{irrigation_absorbed_mm:.0f} मिमी मिट्टी ने सोखा"
+        )
+        if irrigation_percolated_mm > 0.5:
+            # Water beyond what the soil could hold is not stored, so saying so
+            # stops the farmer believing they banked water they did not.
+            line += (
+                f", और {irrigation_percolated_mm:.0f} मिमी जड़ों के नीचे बह गया "
+                "(मिट्टी उतना रोक नहीं सकती)"
+            )
+        assumptions.append(line + "।")
     else:
         # The farmer gave a date but the weather we could fetch does not reach
         # back to it, so the reset never happened. Say so instead of quietly
@@ -440,6 +482,8 @@ def advise(
         soil_available_water_mm_per_m=soil.available_water_mm_per_m,
         soil_is_default=soil_is_default,
         last_irrigation_date=last_irrigation_date,
+        last_irrigation_mm=last_irrigation_mm,
+        last_irrigation_effective_mm=_round(irrigation_absorbed_mm, 1),
         trace=tuple(trace),
         assumptions=tuple(assumptions),
         sources=tuple(dict.fromkeys(sources)),

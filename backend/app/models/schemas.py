@@ -79,6 +79,15 @@ class AdviceRequest(BaseModel):
         default=None,
         description="sandy, loam or clay. Omitted means loam, which the advice states.",
     )
+    last_irrigation_mm: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "How much water the last irrigation applied, in mm. Capped at the "
+            "depletion it meets; the excess drains past the roots. Omit it and "
+            "the irrigation is assumed to refill the profile."
+        ),
+    )
 
 
 class AdvisoryWindow(BaseModel):
@@ -153,6 +162,8 @@ class AdviceResponse(BaseModel):
     # irrigation since sowing. The UI states that assumption rather than
     # leaving it implicit.
     last_irrigation_date: str | None = None
+    last_irrigation_mm: float | None = None
+    last_irrigation_effective_mm: float = 0.0
 
     soil: str
     soil_name_hi: str

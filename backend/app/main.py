@@ -116,6 +116,12 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             detail=f"Unsupported soil '{request.soil}'. Supported: sandy, loam, clay.",
         )
 
+    if request.last_irrigation_mm is not None and request.last_irrigation_date is None:
+        raise HTTPException(
+            status_code=422,
+            detail="A last irrigation amount needs a last irrigation date.",
+        )
+
     if request.last_irrigation_date is not None:
         # Validate before spending a forecast call, and reject a date the
         # engine would have to silently ignore.
@@ -161,6 +167,7 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             today,
             engine_days,
             last_irrigation_date=request.last_irrigation_date,
+            last_irrigation_mm=request.last_irrigation_mm,
             soil=crop_rules.get_soil(request.soil) if request.soil else None,
         )
     except irrigation.EngineInputError as exc:
@@ -243,6 +250,8 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             if advice.last_irrigation_date
             else None
         ),
+        last_irrigation_mm=advice.last_irrigation_mm,
+        last_irrigation_effective_mm=advice.last_irrigation_effective_mm,
         sources=list(advice.sources),
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )

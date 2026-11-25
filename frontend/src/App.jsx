@@ -54,6 +54,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [language, setLanguage] = useState('hi')
   const [lastIrrigation, setLastIrrigation] = useState('')
+  const [lastIrrigationMm, setLastIrrigationMm] = useState('')
   const [soil, setSoil] = useState('')
 
   const resultRef = useRef(null)
@@ -74,6 +75,7 @@ export default function App() {
         location,
         soil: soil || null,
         lastIrrigationDate: lastIrrigation || null,
+        lastIrrigationMm: lastIrrigationMm === '' ? null : Number(lastIrrigationMm),
       })
       setAdvice(fresh)
       setSource('live')
@@ -198,6 +200,33 @@ export default function App() {
                 ? 'उस दिन मिट्टी में पानी पूरा मानकर गणना होगी।'
                 : 'खाली छोड़ें तो सलाह मानेगी कि बोने के बाद से सिंचाई नहीं हुई।'}
             </p>
+
+            <label className="field-label" htmlFor="last-irrigation-mm" style={{ marginTop: 'var(--space-2)' }}>
+              उस सिंचाई में कितना पानी दिया (मिमी)
+              <span className="notes" style={{ marginLeft: 'var(--space-1)' }}>
+                (वैकल्पिक)
+              </span>
+            </label>
+            <input
+              id="last-irrigation-mm"
+              className="input touch"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="1"
+              placeholder="जैसे: 50"
+              value={lastIrrigationMm}
+              onChange={(event) => setLastIrrigationMm(event.target.value)}
+              disabled={!lastIrrigation}
+            />
+            <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+              1 इंच = 25.4 मिमी। खाली छोड़ें तो माना जाएगा कि उस सिंचाई से मिट्टी पूरी भर गई।
+            </p>
+            {lastIrrigationMm !== '' && (
+              <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+                करीब {(Number(lastIrrigationMm) / 25.4).toFixed(1)} इंच
+              </p>
+            )}
           </div>
 
           <button

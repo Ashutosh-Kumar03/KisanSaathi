@@ -104,8 +104,12 @@ export default function AdviceCard({ advice, language, onLanguageChange }) {
         <p className="notes" style={{ margin: '0 0 var(--space-3)' }}>
           {advice.last_irrigation_date
             ? language === 'hi'
-              ? `गणना में माना गया: पिछली सिंचाई ${formatDate(advice.last_irrigation_date)} को हुई थी।`
-              : `Calculated assuming you last irrigated on ${formatDate(advice.last_irrigation_date)}.`
+              ? advice.last_irrigation_mm == null
+                ? `गणना में माना गया: पिछली सिंचाई ${formatDate(advice.last_irrigation_date)} को हुई थी।`
+                : `गणना में माना गया: ${formatDate(advice.last_irrigation_date)} को ${advice.last_irrigation_mm} मिमी पानी दिया, जिसमें से ${advice.last_irrigation_effective_mm} मिमी मिट्टी ने रोका।`
+              : advice.last_irrigation_mm == null
+                ? `Calculated assuming you last irrigated on ${formatDate(advice.last_irrigation_date)}.`
+                : `Calculated assuming ${advice.last_irrigation_mm} mm applied on ${formatDate(advice.last_irrigation_date)}, of which the soil held ${advice.last_irrigation_effective_mm} mm.`
             : language === 'hi'
               ? 'यह सलाह मानती है कि बोने के बाद से सिंचाई नहीं हुई।'
               : 'This advice assumes no irrigation since sowing.'}
