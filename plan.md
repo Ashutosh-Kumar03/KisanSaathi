@@ -1,50 +1,46 @@
 ---
-title: KisanSaathi MVP — weather-to-irrigation advisory
+title: KisanSaathi one-screen irrigation advisor
 status: in-progress
 created: 2026-11-25
 updated: 2026-11-25
+base_commit: adf72c0
 model: deepseek-v4-flash
 ---
 
-# KisanSaathi MVP — weather-to-irrigation advisory
+# KisanSaathi one-screen irrigation advisor
 
-Hindi-first web app for Indian farmers: pick district, crop, sowing date → get a concrete irrigation decision ("irrigate today: 32 mm ≈ 1,30,000 L/acre" or "skip, rain in 2 days"), with the weather that drove it and a Hindi explanation.
+Build the missing half of the app: the deterministic engine, the sourced crop-rule data file, a template narration layer, one `POST /api/advice` endpoint, and the single mobile-first screen that consumes it.
 
-**Core rule: the LLM never computes the recommendation — it only narrates a number the deterministic engine already produced.** `irrigation.py` is pure Python (simplified FAO-56 water balance), testable with no network. Hindi narration falls back to a template if no key/latency/rate limit, so the demo cannot fail on a network dependency. Hallucinated agronomic advice is real harm, and a network call in the critical path is how hackathon demos die.
+**Shape, and why:**
 
-Engine: ETc = Kc × ET0; Dr(i) = Dr(i-1) − effective_rain + ETc; TAW = (FC−WP)×root_depth, RAW = 0.5×TAW; irrigate when Dr ≥ RAW, gross = net/0.7. Output in mm and litres (1 mm/acre ≈ 4,047 L). Soil defaults to loam, shown as visible assumption chips.
+- **Crop rules in one Python module, not JSON.** You asked for a source comment per rule, and JSON cannot carry comments. `backend/app/data/crop_rules.py` holds every agronomic number for wheat and rice in two dicts, and each rule is a small object with its value *and* a `source` string — so the citation is machine-readable (it can render as a chip in the UI) as well as being a comment on the line.
+- **The engine is a pure function, no I/O.** `advise(crop, sowing_date, forecast, today)` takes plain values and returns a decision plus the per-day trace. That keeps agronomy testable without a network and keeps the "LLM/network never computes the number" rule intact by construction — narration is a separate pure function that only formats numbers it is handed.
+- **Narration is Hindi and English templates only, no LLM.** Deterministic strings, so there is no network call in the critical path and the English toggle is just a second template rather than a second subsystem.
+- **No Tailwind.** `README.md` says "React + Vite + Tailwind" but nothing is installed and the token file already provides button/card/input/stat/chip classes. Plain CSS reading tokens is lighter on data and keeps the "never hardcode a colour" rule enforceable.
+- **Offline = `localStorage`, not a service worker.** One screen, tight scope: the last advice survives an API/Open-Meteo failure and is shown with a stale timestamp. Be clear that the app shell itself still needs a network to load — a real offline app needs a service worker, which is out of scope.
 
-Stack: React+Vite+Tailwind → FastAPI → Open-Meteo (no API key needed) → Supabase (profiles, advice log; in-memory fallback when no credentials) → Hindi narration (template first, optional LLM polish).
-
-Open-Meteo field names could not be verified in plan mode; step 5 confirms them live, with a Hargreaves ET0 fallback if absent.
-
-Cut line after step 10 — still a working end-to-end hero workflow on localhost.
+**One thing to be straight about:** you asked for ICAR / state-university citations, and I will not invent one to fill a slot. The Kc values, root depth, depletion fraction and stage lengths I can cite exactly — FAO-56 (Allen et al. 1998), Table 12 and Table 22, which is what those numbers actually come from and is genuinely verifiable. ICAR/SAU citations get added only for specific published recommendations I can confirm in step 1 (the wheat first-irrigation-at-CRI-at-20–25-DAS kind of thing). Where a rule cannot be tied to a published source, it ships citing FAO-56 or is shown in the UI as a stated operational threshold — never as a fake citation, and never as a number with no origin.
 
 ## Steps
 
-- [x] 1. Verify toolchain (`node -v`, `npm -v`, `python3 -V`); record actual versions.
-- [ ] 2. Scaffold `backend/` + `frontend/`, `.gitignore`, `README.md`; one initial commit.
-- [ ] 3. `design-tokens.css` from get_design_starter, edited to an agricultural palette (deep green + ochre) with a Hindi+Latin typeface; check_contrast every pair, light and dark.
-- [ ] 4. FastAPI skeleton `backend/app/main.py` + `config.py` + `GET /health` + `requirements.txt`; verify with uvicorn.
-- [ ] 5. `services/openmeteo.py`: India-restricted geocoding, 7-day daily forecast, field names confirmed live, 10-min cache, Hargreaves fallback; `/api/locations/search`, `/api/weather`.
-- [ ] 6. `services/irrigation.py` pure functions (no I/O) + Kc table in `crops.py`; returns decision plus per-day trace so the UI can show why.
-- [ ] 7. `tests/test_irrigation.py` table-driven (rain suppresses, dry spell triggers, stage changes amount, depletion never negative) + TestClient smoke test; run `pytest -q`.
-- [ ] 8. `POST /api/advice` wiring profile + weather → engine → JSON; `models/schemas.py` contract.
-- [ ] 9. `services/hindi.py`: deterministic Hindi template that always works, optional LLM polish on top; `/api/explain` returns Hindi + English fallback.
-- [ ] 10. Store interface (`base.py`/`memory.py`/`supabase_store.py`) + `supabase/schema.sql` (`farms`, `advice_log`), service key server-side only; verify without credentials then with.
-- [ ] 11. Frontend scaffold: Vite+React+Tailwind, `/api` proxy, `lib/api.js`, index.html linking `/design-tokens.css`; confirm proxy hits real backend.
-- [ ] 12. UI: LocationPicker, CropSelect + sowing date, AdviceCard (action, mm + litres, assumption chips), WeatherStrip, HindiPanel with hi-IN Web Speech degrading to text.
-- [ ] 13. End-to-end browser pass: Patna → wheat → advice → speaks → strip matches API; fix real breakage.
-- [ ] 14. Write `COVEXCODE.md` from verified facts only: real tested commands, engine-computes/LLM-narrates rule, pure-function convention, env vars, confirmed API fields.
+- [x] 1. Verify upstream before writing any rule: one live request to Open-Meteo for the daily wind fields the spray rule needs (`wind_speed_10m_max`, `wind_gusts_10m_max`) to confirm exact names, and confirm the FAO-56 wheat/rice Kc, root-depth and depletion values plus any ICAR/SAU recommendation I intend to cite. Record the confirmed field names in the docstring of `backend/app/services/openmeteo.py`. Nothing downstream starts until this is real.
+- [ ] 2. Create `backend/app/data/crop_rules.py` — the single data file. WHEAT and RICE dicts: stage lengths in days from sowing, Kc per stage, root depth, depletion fraction, critical irrigation stages, per-event application efficiency, and the spray/fertiliser thresholds (rain mm, wind km/h). Every rule carries a `source` field and an inline comment; a module docstring lists the references once.
+      blocked: Cannot start: every write is refused. write_file on backend/app/data/crop_rules.py and backend/app/data/__init__.py returns "Plan mode is read-only... call exit_plan_mode", and run_command refuses even `mkdir`, despite the approval banner reporting plan mode is over and step 1 done. Step 1's two edits to backend/app/services/openmeteo.py and backend/app/models/schemas.py did succeed earlier, so writes worked and then stopped. Re-issuing the same write repeatedly does not help; the session needs plan mode actually lifted (or a fresh session) before any file can be created.
+- [ ] 3. Create `backend/app/services/irrigation.py` — pure functions, no I/O. FAO-56 single-Kc water balance: ETc = Kc x ET0, Dr(i) = Dr(i-1) - effective_rain + ETc, TAW = (FC-WP) x root_depth, RAW = p x TAW, irrigate when Dr >= RAW; net mm, gross = net / efficiency, litres = mm x 4047. Warnings for spray and urea derived from the next 24-48h rain and wind. Returns action, stage, mm, litres/acre, per-day trace, and the assumption list.
+- [ ] 4. Create `backend/tests/test_irrigation.py` — table-driven: rain suppresses a scheduled irrigation, a dry spell triggers one, a later stage raises the amount, depletion never goes negative, mm-to-litre maths holds, spray waits on rain and on high wind. Run `.venv/bin/pytest -q` and get a green, non-zero test count.
+- [ ] 5. Create `backend/app/services/narration.py` — pure Hindi and English templates that render the engine's numbers into the sentence a farmer reads and hears. Separate functions per action so `WAIT_RAIN` cannot mis-word an irrigate-today decision. Unit-test the templates for both crops and both actions.
+- [ ] 6. Extend `backend/app/models/schemas.py` with `AdviceRequest` / `AdviceResponse` and add `POST /api/advice` to `backend/app/main.py` wiring request -> openmeteo.get_forecast -> irrigation.advise -> narration. 422 on a future sowing date or an unknown crop, 502 on upstream failure (never an empty result). Verify with a TestClient call against the real forecast.
+- [ ] 7. Scaffold the frontend: add react, react-dom, vite and @vitejs/plugin-react to `frontend/package.json`, create `frontend/vite.config.js` with the `/api` proxy to :8000 (this is the config the README claims exists and does not), run `npm install`, then confirm `npm run build` passes and the proxy actually reaches the backend.
+- [ ] 8. Create `frontend/src/lib/api.js` (fetch with timeout and distinguishable error kinds), `frontend/src/lib/speech.js` (hi-IN and en-IN via speechSynthesis, feature-detected, cancels on language toggle, silent when unsupported), and `frontend/src/lib/offline.js` (localStorage save/load of the last advice with its timestamp).
+- [ ] 9. Build the single screen: `frontend/src/App.jsx` holding village -> crop -> sowing date -> result, with `src/components/VillagePicker.jsx` (debounced search over /api/locations/search) and `src/components/AdviceCard.jsx` (the action, mm and litres, the Hindi/English line, source and assumption chips, spray and urea rows, weather strip). Add `frontend/src/styles/app.css` styled mobile-first from the tokens only, 44px touch targets, no colour literals.
+- [ ] 10. Browser pass at a 390px viewport: search a real village, pick wheat and a past sowing date, get a real advice, play the Hindi voice, toggle to English, then kill the backend and confirm the cached advice still renders with its timestamp. Fix what actually breaks.
+- [ ] 11. Check every new text/background pairing against the light and dark tokens with contrast, and trim the data footprint: drop unused font weights from the tokens' Google Fonts import, confirm no image or icon-library payload. Update `plan.md` checkboxes and `COVEXCODE.md` with the verified commands and the confirmed upstream field names.
 
 ## Not doing
 
-- Auth / multi-user — one seeded demo farmer keyed by session id.
-- Offline / PWA — needs service workers + cached forecasts; roadmap, not faked.
-- Any ML training — published water-balance agronomy beats a model trained on nothing in 8 hours.
-- Languages beyond Hindi — config-shaped extension, not five template sets.
-- SMS / IVR alerts — highest real impact, needs telco + scheduler; roadmap.
-- Mandi prices / input shopping — in the track text but not the priority.
-- Frontend unit tests — browser pass catches more; agronomy fully tested.
-- Production hardening — rate limiting, RLS, migrations; fine for a demo laptop, dishonest for real use.
+- A service worker / full PWA install — real offline app shell needs caching strategies and versioning; the brief says last advice cached, which localStorage does, and I will not claim more than that in the UI.
+- LLM narration polish — the deterministic templates already satisfy 'no network in critical path'; adding a provider means a key, a failure mode and a data cost for no demo gain.
+- Tailwind — described in the README, absent from the project, and redundant against the existing token stylesheet.
+- Crops beyond wheat and rice, multi-screen navigation, auth, fields/plots, and an advice history — all explicitly outside 'one screen, one result'.
+- Fabricated ICAR/SAU citations to fill every `source` slot — rules cite FAO-56 where that is the true origin, or are labelled as operational thresholds in the UI.
 
