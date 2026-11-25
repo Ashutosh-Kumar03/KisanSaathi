@@ -135,6 +135,11 @@ class Advice:
     urea: ActionWindow
     critical_window_source: str | None
 
+    # The date the balance was reset by a known irrigation, or None when the
+    # farmer did not say. Surfaced to the UI because an unstated assumption
+    # about soil moisture is exactly the kind of thing that should be visible.
+    last_irrigation_date: date | None
+
     trace: tuple[DayTrace, ...]
     assumptions: tuple[str, ...]
     sources: tuple[str, ...]
@@ -225,17 +230,32 @@ def advise(
     today: date,
     days: list[EngineDay],
     depletion_start_mm: float = 0.0,
+    last_irrigation_date: date | None = None,
 ) -> Advice:
     """Compute today's irrigation decision plus the per-day working behind it.
 
     `days` must be in chronological order and cover at least today. It may
     begin after the sowing date, in which case the balance starts from
     `depletion_start_mm` and the assumptions say so.
+
+    `last_irrigation_date` is the farmer's own recollection of when they last
+    watered, and it matters more than any other optional input. A field that
+    was irrigated a week ago is not dry, so without it the balance either piles
+    up a month of imaginary deficit (advising water the crop already has) or,
+    if the season is short, never reaches the stress point at all. On that date
+    the roots are back at field capacity, so depletion restarts from zero and
+    only the days after it count. When the date is unknown the engine keeps its
+    previous reading and says plainly that it assumed no irrigation.
     """
     if not days:
         raise EngineInputError("no weather days supplied")
     if today < sowing_date:
         raise EngineInputError("sowing date is in the future")
+    if last_irrigation_date is not None:
+        if last_irrigation_date > today:
+            raise EngineInputError("last irrigation date is in the future")
+        if last_irrigation_date < sowing_date:
+            raise EngineInputError("last irrigation date is before sowing")
 
     ordered = sorted(days, key=lambda d: d.date)
     if ordered[-1].date < today:
@@ -260,6 +280,14 @@ def advise(
         kc = crop.kc_for_age(age)
         etc = kc * day.et0_mm
         effective_rain = day.rain_mm * RAIN_EFFECTIVENESS
+
+        # A known irrigation refills the root zone to field capacity, so the
+        # deficit restarts at zero on that date. Applied before the day's own
+        # demand rather than after, so the day the farmer actually watered
+        # still counts the water the crop drew that day -- the water was given
+        # in the morning, not at midnight.
+        if last_irrigation_date is not None and day.date == last_irrigation_date:
+            depletion = 0.0
 
         start_depletion = depletion
         depletion = depletion - effective_rain + etc
@@ -329,6 +357,33 @@ def advise(
             "उससे पहले की मिट्टी की नमी मापी नहीं गई"
         )
 
+    # The soil-moisture assumption is stated in words either way. "We assumed
+    # no irrigation" is a very different claim from "we assumed you watered on
+    # the 12th", and the farmer is the only one who can tell which is true.
+    reset_covered = (
+        last_irrigation_date is not None
+        and bool(trace)
+        and last_irrigation_date >= trace[0].date
+    )
+    if last_irrigation_date is None:
+        assumptions.append(
+            "यह सलाह मानती है कि बोने के बाद से अब तक सिंचाई नहीं हुई है। "
+            "अगर सिंचाई की थी, तो तारीख डालकर सलाह फिर लें।"
+        )
+    elif reset_covered:
+        assumptions.append(
+            f"पिछली सिंचाई {last_irrigation_date.strftime('%d-%m-%Y')} को मानी गई है; "
+            "उस दिन मिट्टी में पानी पूरा (कमी शून्य) माना गया है"
+        )
+    else:
+        # The farmer gave a date but the weather we could fetch does not reach
+        # back to it, so the reset never happened. Say so instead of quietly
+        # presenting a balance that ignores what they told us.
+        assumptions.append(
+            f"पिछली सिंचाई की तारीख {last_irrigation_date.strftime('%d-%m-%Y')} उपलब्ध "
+            "मौसम डेटा की अवधि से पहले है, इसलिए गणना उपलब्ध पहले दिन से शुरू की गई है"
+        )
+
     sources = [
         crop.kc_initial.source,
         crop.root_depth_m.source,
@@ -358,6 +413,7 @@ def advise(
         spray=_judge_spray(ordered, today),
         urea=_judge_urea(ordered, today),
         critical_window_source=window.source if window else None,
+        last_irrigation_date=last_irrigation_date,
         trace=tuple(trace),
         assumptions=tuple(assumptions),
         sources=tuple(dict.fromkeys(sources)),

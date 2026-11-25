@@ -67,6 +67,14 @@ class AdviceRequest(BaseModel):
     location_name: str = Field(
         default="", description="Display name of the chosen village, echoed back"
     )
+    last_irrigation_date: date | None = Field(
+        default=None,
+        description=(
+            "When the farmer last irrigated, if they know. Depletion restarts from "
+            "zero on that date. Omit it and the advice assumes no irrigation since "
+            "sowing, which it then says out loud."
+        ),
+    )
 
 
 class AdvisoryWindow(BaseModel):
@@ -136,6 +144,11 @@ class AdviceResponse(BaseModel):
     urea: AdvisoryWindow
     forecast: list[ForecastDayOut]
     trace: list[DayTraceOut]
+
+    # Null means the farmer did not say, and the advice therefore assumes no
+    # irrigation since sowing. The UI states that assumption rather than
+    # leaving it implicit.
+    last_irrigation_date: str | None = None
 
     assumptions: list[str]
     sources: list[str]

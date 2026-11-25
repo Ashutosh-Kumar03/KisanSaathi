@@ -70,7 +70,7 @@ export async function searchLocations(query) {
 }
 
 /** Ask for the one decision the app exists to give. */
-export async function fetchAdvice({ crop, sowingDate, location }) {
+export async function fetchAdvice({ crop, sowingDate, location, lastIrrigationDate }) {
   return request('/api/advice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -80,6 +80,10 @@ export async function fetchAdvice({ crop, sowingDate, location }) {
       latitude: location.latitude,
       longitude: location.longitude,
       location_name: location.display_name,
+      // Omitted rather than sent as a guess when the farmer leaves it blank:
+      // the backend then reports that it assumed no irrigation, which the card
+      // shows, instead of the app inventing a date for them.
+      last_irrigation_date: lastIrrigationDate || null,
     }),
   })
 }

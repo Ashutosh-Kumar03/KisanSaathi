@@ -110,6 +110,20 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             status_code=422, detail="Sowing date cannot be in the future."
         )
 
+    if request.last_irrigation_date is not None:
+        # Validate before spending a forecast call, and reject a date the
+        # engine would have to silently ignore.
+        if request.last_irrigation_date > today:
+            raise HTTPException(
+                status_code=422,
+                detail="Last irrigation date cannot be in the future.",
+            )
+        if request.last_irrigation_date < request.sowing_date:
+            raise HTTPException(
+                status_code=422,
+                detail="Last irrigation date cannot be before the sowing date.",
+            )
+
     age_days = (today - request.sowing_date).days
     # Cover the season so far, bounded by what the upstream API will give.
     past_days = min(age_days, 92)
@@ -135,7 +149,13 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
     ]
 
     try:
-        advice = irrigation.advise(crop, request.sowing_date, today, engine_days)
+        advice = irrigation.advise(
+            crop,
+            request.sowing_date,
+            today,
+            engine_days,
+            last_irrigation_date=request.last_irrigation_date,
+        )
     except irrigation.EngineInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -206,6 +226,11 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             for row in advice.trace
         ],
         assumptions=list(advice.assumptions),
+        last_irrigation_date=(
+            advice.last_irrigation_date.isoformat()
+            if advice.last_irrigation_date
+            else None
+        ),
         sources=list(advice.sources),
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )

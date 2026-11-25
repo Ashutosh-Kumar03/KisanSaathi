@@ -47,6 +47,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [language, setLanguage] = useState('hi')
+  const [lastIrrigation, setLastIrrigation] = useState('')
 
   const resultRef = useRef(null)
   const maxDate = useMemo(todayISO, [])
@@ -60,7 +61,12 @@ export default function App() {
     setError(null)
 
     try {
-      const fresh = await fetchAdvice({ crop, sowingDate, location })
+      const fresh = await fetchAdvice({
+        crop,
+        sowingDate,
+        location,
+        lastIrrigationDate: lastIrrigation || null,
+      })
       setAdvice(fresh)
       setSource('live')
       saveLastAdvice(fresh)
@@ -137,6 +143,29 @@ export default function App() {
               onChange={(event) => setSowingDate(event.target.value)}
               required
             />
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="last-irrigation">
+              पिछली सिंचाई की तारीख
+              <span className="notes" style={{ marginLeft: 'var(--space-1)' }}>
+                (वैकल्पिक)
+              </span>
+            </label>
+            <input
+              id="last-irrigation"
+              className="input touch"
+              type="date"
+              value={lastIrrigation}
+              min={sowingDate}
+              max={maxDate}
+              onChange={(event) => setLastIrrigation(event.target.value)}
+            />
+            <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+              {lastIrrigation
+                ? 'उस दिन मिट्टी में पानी पूरा मानकर गणना होगी।'
+                : 'खाली छोड़ें तो सलाह मानेगी कि बोने के बाद से सिंचाई नहीं हुई।'}
+            </p>
           </div>
 
           <button

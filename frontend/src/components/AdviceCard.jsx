@@ -22,8 +22,14 @@ const ACTION_STYLE = {
   SEASON_OVER: { badge: 'badge-hold', tone: 'hold' },
 }
 
-function VerdictBadge({ verdict, language }) {
-  const map = {
+/** Render an ISO date the way it reads in Hindi: 12-11-2026. */
+function formatDate(iso) {
+  if (!iso) return ''
+  const [year, month, day] = iso.split('-')
+  return `${day}-${month}-${year}`
+}
+
+function VerdictBadge({ verdict, language }) {  const map = {
     go: { cls: 'badge badge-action', hi: 'अभी करें', en: 'Go ahead' },
     wait: { cls: 'badge badge-hold', hi: 'रुकें', en: 'Wait' },
     unknown: { cls: 'badge badge-hold', hi: 'पता नहीं', en: 'Not known' },
@@ -89,6 +95,20 @@ export default function AdviceCard({ advice, language, onLanguageChange }) {
 
         <p className="hindi-text" style={{ margin: 'var(--space-3) 0 var(--space-3)' }}>
           {text}
+        </p>
+
+        {/* The soil-moisture assumption is stated here as well as in the
+            details below, because it changes the answer: "assumed no
+            irrigation" is a different claim from "assumed you watered on the
+            12th", and only the farmer knows which is true. */}
+        <p className="notes" style={{ margin: '0 0 var(--space-3)' }}>
+          {advice.last_irrigation_date
+            ? language === 'hi'
+              ? `गणना में माना गया: पिछली सिंचाई ${formatDate(advice.last_irrigation_date)} को हुई थी।`
+              : `Calculated assuming you last irrigated on ${formatDate(advice.last_irrigation_date)}.`
+            : language === 'hi'
+              ? 'यह सलाह मानती है कि बोने के बाद से सिंचाई नहीं हुई।'
+              : 'This advice assumes no irrigation since sowing.'}
         </p>
 
         <div className="voice-row">

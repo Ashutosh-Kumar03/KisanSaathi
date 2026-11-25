@@ -84,6 +84,36 @@ def test_advice_rejects_a_future_sowing_date():
     assert response.status_code == 422
 
 
+def test_advice_rejects_a_future_last_irrigation_date():
+    today = date.today()
+    response = client.post(
+        "/api/advice",
+        json={
+            "crop": "wheat",
+            "sowing_date": str(today - timedelta(days=30)),
+            "last_irrigation_date": str(today + timedelta(days=1)),
+            "latitude": 25.594,
+            "longitude": 85.136,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_advice_rejects_an_irrigation_date_before_sowing():
+    today = date.today()
+    response = client.post(
+        "/api/advice",
+        json={
+            "crop": "wheat",
+            "sowing_date": str(today - timedelta(days=30)),
+            "last_irrigation_date": str(today - timedelta(days=40)),
+            "latitude": 25.594,
+            "longitude": 85.136,
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_advice_returns_a_real_decision():
     try:
         response = client.post(
@@ -111,6 +141,10 @@ def test_advice_returns_a_real_decision():
     }
     assert body["hindi"] and body["english"]
     assert body["sources"], "advice must carry its citations"
+    # No last-irrigation date was sent, so the response must say it assumed
+    # none rather than leaving the assumption implicit.
+    assert body["last_irrigation_date"] is None
+    assert any("सिंचाई नहीं हुई" in line for line in body["assumptions"])
     if body["action"] == "IRRIGATE_TODAY":
         assert body["litres_per_acre"] > 0
         assert body["gross_mm"] >= body["net_mm"]

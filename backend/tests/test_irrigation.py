@@ -246,6 +246,131 @@ def test_assumptions_are_always_disclosed():
     assert "दोमट" in joined  # soil type is stated, not hidden
 
 
+# --- the last-irrigation reset -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "days_since_irrigation,expected_action,note",
+    [
+        # Watered yesterday: the profile is refilled, so a month-long dry spell
+        # before that no longer justifies watering again today.
+        (1, "SOIL_MOISTURE_OK", "reset yesterday clears the accumulated deficit"),
+        # Watered 20 days ago: real deficit has built up since, past RAW.
+        (20, "IRRIGATE_TODAY", "20 dry days since a reset still reach the stress point"),
+        # Watered today: the balance is the day's own demand, never negative.
+        (0, "SOIL_MOISTURE_OK", "watering today leaves only today's ETc"),
+    ],
+)
+def test_last_irrigation_resets_the_balance(days_since_irrigation, expected_action, note):
+    today = SOWING + timedelta(days=30)
+    last = today - timedelta(days=days_since_irrigation)
+    advice = advise(
+        WHEAT, SOWING, today, dry(today + timedelta(days=7)), last_irrigation_date=last
+    )
+    assert advice.action == expected_action, f"{note}: got {advice.action}"
+    assert advice.last_irrigation_date == last
+
+
+def test_irrigation_date_changes_the_advice_it_would_give_without_it():
+    """The same weather must produce a different decision once the reset is known."""
+    today = SOWING + timedelta(days=30)
+    days = dry(today + timedelta(days=7))
+
+    without = advise(WHEAT, SOWING, today, days)
+    with_recent = advise(
+        WHEAT, SOWING, today, days, last_irrigation_date=today - timedelta(days=1)
+    )
+
+    assert without.action == "IRRIGATE_TODAY"
+    assert with_recent.action == "SOIL_MOISTURE_OK"
+    assert with_recent.depletion_mm < without.depletion_mm
+    # Irrigating today is a real amount of water; skipping it is zero.
+    assert without.litres_per_acre > 0
+    assert with_recent.litres_per_acre == 0
+
+
+def test_reset_applies_only_from_that_date_onwards():
+    """Days before the reset still accumulate deficit; the reset day starts at 0."""
+    today = SOWING + timedelta(days=30)
+    last = today - timedelta(days=10)
+    advice = advise(
+        WHEAT, SOWING, today, dry(today + timedelta(days=7)), last_irrigation_date=last
+    )
+
+    by_date = {row.date: row for row in advice.trace}
+    day_before = by_date[last - timedelta(days=1)]
+    reset_day = by_date[last]
+
+    # Before the reset the deficit had built up over the season.
+    assert day_before.depletion_end_mm > 0
+    # The reset day starts from a full profile, then pays its own ETc.
+    assert reset_day.depletion_start_mm == 0.0
+    assert 0 < reset_day.depletion_end_mm <= reset_day.etc_mm + 0.05
+
+
+def test_no_irrigation_date_says_so_out_loud():
+    today = SOWING + timedelta(days=30)
+    advice = advise(WHEAT, SOWING, today, dry(today + timedelta(days=7)))
+
+    assert advice.last_irrigation_date is None
+    joined = " ".join(advice.assumptions)
+    assert "सिंचाई नहीं हुई" in joined
+
+
+def test_given_irrigation_date_is_disclosed_with_its_date():
+    today = SOWING + timedelta(days=30)
+    last = today - timedelta(days=5)
+    advice = advise(
+        WHEAT, SOWING, today, dry(today + timedelta(days=7)), last_irrigation_date=last
+    )
+
+    joined = " ".join(advice.assumptions)
+    assert last.strftime("%d-%m-%Y") in joined
+    # The "no irrigation" line must not also be present, or the two
+    # contradictory claims would both be shown to the farmer.
+    assert "सिंचाई नहीं हुई" not in joined
+
+
+def test_irrigation_date_older_than_available_weather_is_disclosed():
+    """A reset the forecast cannot reach must not be silently ignored."""
+    today = SOWING + timedelta(days=40)
+    # Weather only from 20 days after sowing, but the irrigation was earlier.
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 5.0, 0.0, 5.0)
+        for i in range(20, 48)
+    ]
+    advice = advise(
+        WHEAT,
+        SOWING,
+        today,
+        days,
+        last_irrigation_date=SOWING + timedelta(days=5),
+    )
+    joined = " ".join(advice.assumptions)
+    assert "उपलब्ध" in joined  # says the date precedes the available data
+
+
+@pytest.mark.parametrize(
+    "offset_days,message",
+    [
+        (1, "in the future"),
+        (-1, "before sowing"),
+    ],
+)
+def test_rejects_impossible_irrigation_dates(offset_days, message):
+    today = SOWING + timedelta(days=30)
+    bad = today + timedelta(days=offset_days) if offset_days > 0 else SOWING - timedelta(days=1)
+    with pytest.raises(EngineInputError) as exc:
+        advise(
+            WHEAT,
+            SOWING,
+            today,
+            dry(today + timedelta(days=3)),
+            last_irrigation_date=bad,
+        )
+    assert message in str(exc.value)
+
+
 # --- inputs the engine must refuse ----------------------------------------
 
 
