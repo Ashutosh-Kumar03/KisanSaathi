@@ -245,6 +245,18 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
         soil_name_en=advice.soil_name_en,
         soil_available_water_mm_per_m=advice.soil_available_water_mm_per_m,
         soil_is_default=advice.soil_is_default,
+        next_irrigation_date=(
+            advice.next_irrigation_date.isoformat()
+            if advice.next_irrigation_date
+            else None
+        ),
+        next_irrigation_mm=advice.next_irrigation_mm,
+        next_irrigation_within_forecast=advice.next_irrigation_within_forecast,
+        forecast_covered_until=(
+            advice.forecast_covered_until.isoformat()
+            if advice.forecast_covered_until
+            else None
+        ),
         last_irrigation_date=(
             advice.last_irrigation_date.isoformat()
             if advice.last_irrigation_date

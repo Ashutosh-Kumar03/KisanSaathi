@@ -478,6 +478,82 @@ def test_rejects_impossible_irrigation_amounts(kwargs, message):
     assert message in str(exc.value)
 
 
+# --- next irrigation date ----------------------------------------------------
+
+
+def test_next_irrigation_is_today_when_already_stressed():
+    today = SOWING + timedelta(days=30)
+    advice = advise(WHEAT, SOWING, today, dry(today + timedelta(days=7)))
+    assert advice.action == "IRRIGATE_TODAY"
+    assert advice.next_irrigation_date == today
+    assert advice.next_irrigation_within_forecast is True
+
+
+@pytest.mark.parametrize("soil_key", ["sandy", "loam", "clay"])
+def test_next_irrigation_lands_inside_the_forecast_window(soil_key):
+    today = SOWING + timedelta(days=20)
+    advice = advise(
+        WHEAT,
+        SOWING,
+        today,
+        dry(today + timedelta(days=9)),
+        soil=crop_rules.get_soil(soil_key),
+    )
+    assert advice.next_irrigation_date is not None, soil_key
+    # Never a date the weather does not cover.
+    assert today <= advice.next_irrigation_date <= advice.forecast_covered_until
+    # When the crop is not already stressed the date must be in the future; a
+    # "today" on an unstressed crop would be a projection bug.
+    if advice.action != "IRRIGATE_TODAY":
+        assert advice.next_irrigation_date > today
+
+
+def test_next_irrigation_is_reported_as_absent_rather_than_extrapolated():
+    """Wet forecast: no date, and the window's end is stated so it is honest."""
+    today = SOWING + timedelta(days=20)
+    advice = advise(WHEAT, SOWING, today, series(today + timedelta(days=6), lambda i: 5.0, lambda i: 9.0))
+
+    assert advice.next_irrigation_date is None
+    assert advice.next_irrigation_within_forecast is False
+    assert advice.forecast_covered_until == today + timedelta(days=6)
+    assert advice.next_irrigation_mm == 0.0
+
+
+def test_next_irrigation_moves_later_with_wetter_weather():
+    """More rain in the window must not make water needed sooner."""
+    today = SOWING + timedelta(days=20)
+
+    def project(rain):
+        days = series(today + timedelta(days=9), lambda i: 6.0, lambda i: rain)
+        return advise(WHEAT, SOWING, today, days).next_irrigation_date
+
+    dry_date = project(0.0)
+    some_rain = project(3.0)
+    assert dry_date is not None
+    # Either it is pushed later, or rain removed the need inside the window.
+    assert some_rain is None or some_rain >= dry_date
+
+
+def test_next_irrigation_is_none_when_the_season_is_over():
+    today = SOWING + timedelta(days=140)
+    advice = advise(WHEAT, SOWING, today, dry(today + timedelta(days=5)))
+    assert advice.action == "SEASON_OVER"
+    assert advice.next_irrigation_date is None
+    assert advice.next_irrigation_within_forecast is False
+
+
+def test_next_irrigation_never_exceeds_the_stress_point_water():
+    """The projected amount is capped by what the soil can hold."""
+    today = SOWING + timedelta(days=20)
+    advice = advise(WHEAT, SOWING, today, dry(today + timedelta(days=9)))
+    if advice.next_irrigation_date is None:
+        pytest.skip("no irrigation projected inside this window")
+    assert advice.next_irrigation_mm <= advice.taw_mm + 0.05
+    # On the projected day the deficit has just reached the stress point, so
+    # the amount to refill it is at least RAW.
+    assert advice.next_irrigation_mm >= advice.raw_mm - 0.05
+
+
 # --- inputs the engine must refuse ----------------------------------------
 
 

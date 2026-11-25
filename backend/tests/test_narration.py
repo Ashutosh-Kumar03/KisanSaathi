@@ -20,6 +20,7 @@ from app.services.narration import (
     headline,
     irrigation_line,
     narrate,
+    next_irrigation_line,
     soil_line,
 )
 
@@ -181,6 +182,64 @@ def test_irrigation_line_has_a_no_irrigation_case():
     hindi, english = irrigation_line(advice)
     assert "सिंचाई नहीं हुई" in hindi
     assert "no irrigation" in english
+
+
+def test_next_irrigation_line_gives_a_date_within_the_window():
+    today = SOWING + timedelta(days=20)
+    # Mild but drying weather, chosen so the crop is not yet stressed and the
+    # projection lands on a future day rather than today.
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 4.0, 0.0, 5.0)
+        for i in range((today + timedelta(days=12) - SOWING).days + 1)
+    ]
+    advice = advise(WHEAT, SOWING, today, days)
+    assert advice.next_irrigation_date is not None
+    assert advice.next_irrigation_date > today
+
+    hindi, english = next_irrigation_line(advice)
+    stamp = advice.next_irrigation_date.strftime("%d-%m-%Y")
+    assert stamp in hindi and stamp in english
+    assert any("\u0900" <= ch <= "\u097F" for ch in hindi)
+
+
+def test_next_irrigation_line_says_absent_and_never_extrapolates():
+    today = SOWING + timedelta(days=20)
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 5.0, 10.0, 5.0)
+        for i in range((today + timedelta(days=5) - SOWING).days + 1)
+    ]
+    advice = advise(WHEAT, SOWING, today, days)
+    assert advice.next_irrigation_date is None
+
+    hindi, english = next_irrigation_line(advice)
+    assert "नहीं दिख रही" in hindi
+    assert "not" in english.lower() or "no irrigation" in english.lower()
+    # Both must say the window is where the claim stops.
+    assert "आगे" in hindi
+    assert "beyond" in english.lower()
+
+
+def test_next_irrigation_line_handles_today_and_season_over():
+    # Already stressed.
+    today = SOWING + timedelta(days=30)
+    stressed = advise(WHEAT, SOWING, today, _dry_days(today, 7))
+    hindi, english = next_irrigation_line(stressed)
+    assert "आज" in hindi
+    assert "today" in english.lower()
+
+    # Season over.
+    late = SOWING + timedelta(days=140)
+    over = advise(WHEAT, SOWING, late, _dry_days(late, 5))
+    hindi2, english2 = next_irrigation_line(over)
+    assert "अवधि पूरी" in hindi2
+    assert "season is over" in english2.lower()
+
+
+def _dry_days(today, span):
+    return [
+        EngineDay(SOWING + timedelta(days=i), 5.0, 0.0, 5.0)
+        for i in range((today + timedelta(days=span) - SOWING).days + 1)
+    ]
 
 
 def test_critical_window_is_mentioned_when_active():

@@ -143,6 +143,15 @@ class Advice:
     soil_available_water_mm_per_m: float
     soil_is_default: bool
 
+    # The first day within the forecast the deficit is expected to reach the
+    # stress point, or None when it does not within the days we actually have.
+    # Never extrapolated past the forecast: a date beyond the last day we were
+    # given weather for would be invented, not computed.
+    next_irrigation_date: date | None
+    next_irrigation_mm: float
+    next_irrigation_within_forecast: bool
+    forecast_covered_until: date | None
+
     # The date the balance was reset by a known irrigation, or None when the
     # farmer did not say. Surfaced to the UI because an unstated assumption
     # about soil moisture is exactly the kind of thing that should be visible.
@@ -388,6 +397,39 @@ def advise(
     gross_mm = net_mm / efficiency if net_mm > 0 else 0.0
     litres = int(round(gross_mm * LITRES_PER_MM_ACRE))
 
+    # ---- when water is next needed ------------------------------------
+    # Walk the forecast forward from today, applying the same balance, and stop
+    # at the first day the deficit reaches the stress point.
+    #
+    # Deliberately bounded by the days we were actually given weather for. A
+    # date past the end of the forecast would be extrapolated from weather that
+    # does not exist, and a confident-looking wrong date is worse than saying
+    # "not within the next few days".
+    upcoming_days = [d for d in ordered if d.date > today]
+    forecast_covered_until = upcoming_days[-1].date if upcoming_days else today
+
+    next_irrigation_date: date | None = None
+    next_irrigation_mm = 0.0
+
+    if action == "SEASON_OVER":
+        # No crop left to water; a projected date would be meaningless.
+        next_irrigation_date = None
+    elif depletion_today >= raw:
+        # Already at the stress point, so the day is today.
+        next_irrigation_date = today
+        next_irrigation_mm = depletion_today
+    else:
+        projected = depletion_today
+        for day in upcoming_days:
+            age = (day.date - sowing_date).days
+            kc = crop.kc_for_age(age)
+            projected = projected - day.rain_mm * RAIN_EFFECTIVENESS + kc * day.et0_mm
+            projected = max(0.0, min(projected, taw))
+            if projected >= raw:
+                next_irrigation_date = day.date
+                next_irrigation_mm = projected
+                break
+
     assumptions = [
         f"मिट्टी: {soil.name_hi} — {soil.fao_class} (FAO-56 तालिका 19), "
         f"उपलब्ध पानी {soil.available_water_mm_per_m:.0f} मिमी प्रति मीटर गहराई",
@@ -481,6 +523,10 @@ def advise(
         soil_name_en=soil.name_en,
         soil_available_water_mm_per_m=soil.available_water_mm_per_m,
         soil_is_default=soil_is_default,
+        next_irrigation_date=next_irrigation_date,
+        next_irrigation_mm=_round(next_irrigation_mm),
+        next_irrigation_within_forecast=next_irrigation_date is not None,
+        forecast_covered_until=forecast_covered_until,
         last_irrigation_date=last_irrigation_date,
         last_irrigation_mm=last_irrigation_mm,
         last_irrigation_effective_mm=_round(irrigation_absorbed_mm, 1),

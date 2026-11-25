@@ -147,6 +147,36 @@ export default function AdviceCard({ advice, language, onLanguageChange }) {
         )}
       </section>
 
+      <section className="card" aria-labelledby="next-heading">
+        <h3 id="next-heading" style={{ fontSize: 'var(--text-base)' }}>
+          अगली सिंचाई
+        </h3>
+        <p style={{ margin: 0 }}>
+          {advice.next_irrigation_date === null
+            ? language === 'hi'
+              ? `अगले कुछ दिनों में पानी की ज़रूरत नहीं दिख रही${
+                  advice.forecast_covered_until
+                    ? ` (${formatDate(advice.forecast_covered_until)} तक का पूर्वानुमान)`
+                    : ''
+                }।`
+              : `No irrigation looks necessary within the forecast${
+                  advice.forecast_covered_until
+                    ? ` (up to ${formatDate(advice.forecast_covered_until)})`
+                    : ''
+                }.`
+            : advice.next_irrigation_date === advice.today
+              ? language === 'hi'
+                ? 'आज ही पानी चाहिए।'
+                : 'Water is needed today.'
+              : language === 'hi'
+                ? `करीब ${formatDate(advice.next_irrigation_date)} को पानी चाहिए होगा (करीब ${advice.next_irrigation_mm} मिमी)।`
+                : `Water is likely needed around ${formatDate(advice.next_irrigation_date)} (about ${advice.next_irrigation_mm} mm).`}
+        </p>
+        <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+          यह सिर्फ़ उपलब्ध पूर्वानुमान के दिनों तक का अनुमान है — उससे आगे का अंदाज़ा नहीं लगाया गया।
+        </p>
+      </section>
+
       <section className="card" aria-labelledby="inputs-heading">
         <h3 id="inputs-heading" style={{ fontSize: 'var(--text-base)' }}>
           छिड़काव और खाद

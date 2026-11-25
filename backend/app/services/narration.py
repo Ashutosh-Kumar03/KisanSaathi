@@ -220,6 +220,48 @@ def irrigation_line(advice: Advice) -> tuple[str, str]:
     return hindi + "।", english + "."
 
 
+def next_irrigation_line(advice: Advice) -> tuple[str, str]:
+    """When water is next likely to be needed, within the forecast only.
+
+    Three outcomes, and the third is the one that must not be dressed up: if the
+    deficit does not reach the stress point on any day we have weather for, the
+    answer is "not within the next few days", never a date extrapolated from
+    weather that does not exist.
+    """
+    if advice.action == "SEASON_OVER":
+        return (
+            "फसल की अवधि पूरी हो चुकी है, इसलिए आगे की सिंचाई की सलाह नहीं दी जा सकती।",
+            "The season is over, so no further irrigation can be advised.",
+        )
+
+    if advice.next_irrigation_date is None:
+        until = advice.forecast_covered_until
+        span = (
+            f"{until.strftime('%d-%m')} तक" if until else "उपलब्ध दिनों में"
+        )
+        return (
+            f"अगले कुछ दिनों में पानी की ज़रूरत नहीं दिख रही ({span} का पूर्वानुमान)। "
+            "इससे आगे का अंदाज़ा नहीं लगाया गया।",
+            f"No irrigation looks necessary within the forecast (up to "
+            f"{until.strftime('%d-%m') if until else 'the available days'}). "
+            f"Nothing beyond that window is extrapolated.",
+        )
+
+    day = advice.next_irrigation_date.strftime("%d-%m-%Y")
+    mm = f"{advice.next_irrigation_mm:.0f} mm"
+    if advice.next_irrigation_date == advice.today:
+        return (
+            "पानी आज ही चाहिए — मिट्टी की नमी सीमा तक पहुँच चुकी है।",
+            "Water is needed today — soil moisture has reached the stress point.",
+        )
+    return (
+        f"अगली सिंचाई करीब {day} को चाहिए होगी (करीब {mm}) — यह मौजूदा पूर्वानुमान के "
+        "हिसाब से है, मौसम बदले तो बदल सकता है।",
+        f"Next irrigation is likely needed around {day} (about {mm}). This is "
+        "based on the current forecast, so it can move if the weather does.",
+    )
+
+
 def narrate(advice: Advice) -> tuple[str, str]:
     """Return (hindi, english) for an advice.
 

@@ -171,6 +171,13 @@ class AdviceResponse(BaseModel):
     soil_available_water_mm_per_m: float
     soil_is_default: bool
 
+    # The next date the deficit is expected to reach the stress point, or null
+    # when it does not within the forecast. Never extrapolated past the window.
+    next_irrigation_date: str | None = None
+    next_irrigation_mm: float = 0.0
+    next_irrigation_within_forecast: bool = False
+    forecast_covered_until: str | None = None
+
     assumptions: list[str]
     sources: list[str]
     generated_at: str
