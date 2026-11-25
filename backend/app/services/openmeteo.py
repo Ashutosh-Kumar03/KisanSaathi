@@ -168,11 +168,22 @@ def hargreaves_et0(
     return max(0.0, round(et0, 2))
 
 
-async def get_forecast(latitude: float, longitude: float, days: int = 7) -> WeatherForecast:
-    """Fetch a daily forecast. Cached for 10 minutes per rounded coordinate."""
+async def get_forecast(
+    latitude: float, longitude: float, days: int = 7, past_days: int = 0
+) -> WeatherForecast:
+    """Fetch a daily forecast, optionally with real observed days behind it.
+
+    `past_days` matters more than it looks. The water balance needs to know how
+    much water the crop has already used since sowing; without the days behind
+    today it would have to start from field capacity today and could almost
+    never justify irrigating, because a single day of demand never reaches the
+    stress point. These are observed values from the same API, not modelled
+    guesses. Open-Meteo caps the window at 92 days.
+    """
     days = max(1, min(days, 16))
+    past_days = max(0, min(past_days, 92))
     # ~1 km rounding: different taps in the same village share a cache entry.
-    cache_key = f"{round(latitude, 2)},{round(longitude, 2)},{days}"
+    cache_key = f"{round(latitude, 2)},{round(longitude, 2)},{days},{past_days}"
     cached = _cache_get(_forecast_cache, cache_key)
     if cached is not None:
         return cached
@@ -184,6 +195,8 @@ async def get_forecast(latitude: float, longitude: float, days: int = 7) -> Weat
         "forecast_days": days,
         "timezone": TIMEZONE,
     }
+    if past_days:
+        params["past_days"] = past_days
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         response = await client.get(FORECAST_URL, params=params)
         response.raise_for_status()

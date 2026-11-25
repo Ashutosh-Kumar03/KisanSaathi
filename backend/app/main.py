@@ -6,12 +6,23 @@ change the recommendation -- narration only explains a number that already
 exists.
 """
 
+from datetime import date, datetime, timezone
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .models.schemas import LocationSearchResponse, WeatherForecast
-from .services import openmeteo
+from .data import crop_rules
+from .models.schemas import (
+    AdviceRequest,
+    AdviceResponse,
+    AdvisoryWindow,
+    DayTraceOut,
+    ForecastDayOut,
+    LocationSearchResponse,
+    WeatherForecast,
+)
+from .services import irrigation, narration, openmeteo
 
 app = FastAPI(
     title="KisanSaathi API",
@@ -72,3 +83,129 @@ async def get_weather(
         return await openmeteo.get_forecast(lat, lon, days)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Weather lookup failed: {exc}") from exc
+
+
+@app.post("/api/advice", response_model=AdviceResponse)
+async def post_advice(request: AdviceRequest) -> AdviceResponse:
+    """The one decision the whole app exists to deliver.
+
+    Order matters here. The crop rules and the sowing date are validated first,
+    so a typo in the crop name is a 422 and never a wasted forecast call. The
+    weather is fetched with enough past days to cover the season so far, the
+    deterministic engine decides, and only then is the decision narrated. If
+    the weather service fails this is a 502 -- never an empty or invented
+    advice, because "no answer" and "no need to irrigate" must never look the
+    same to a farmer deciding whether to run a pump.
+    """
+    crop = crop_rules.get_crop(request.crop)
+    if crop is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported crop '{request.crop}'. Supported: wheat, rice.",
+        )
+
+    today = date.today()
+    if request.sowing_date > today:
+        raise HTTPException(
+            status_code=422, detail="Sowing date cannot be in the future."
+        )
+
+    age_days = (today - request.sowing_date).days
+    # Cover the season so far, bounded by what the upstream API will give.
+    past_days = min(age_days, 92)
+
+    try:
+        forecast = await openmeteo.get_forecast(
+            request.latitude, request.longitude, days=8, past_days=past_days
+        )
+    except Exception as exc:  # noqa: BLE001 - any upstream failure is a 502 here
+        raise HTTPException(
+            status_code=502, detail=f"Weather lookup failed: {exc}"
+        ) from exc
+
+    engine_days = [
+        irrigation.EngineDay(
+            date=date.fromisoformat(day.date),
+            et0_mm=day.et0_mm,
+            rain_mm=day.rain_mm,
+            wind_max_kmh=day.wind_max_kmh,
+            rain_probability_pct=day.rain_probability_pct,
+        )
+        for day in forecast.days
+    ]
+
+    try:
+        advice = irrigation.advise(crop, request.sowing_date, today, engine_days)
+    except irrigation.EngineInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    hindi, english = narration.narrate(advice)
+    headline_hi, headline_en = narration.headline(advice)
+
+    # Only days from today onward are shown as "the forecast"; the days behind
+    # today are working, not weather to plan around.
+    today_iso = today.isoformat()
+    upcoming = [day for day in forecast.days if day.date >= today_iso]
+
+    return AdviceResponse(
+        action=advice.action,
+        headline_hi=headline_hi,
+        headline_en=headline_en,
+        hindi=hindi,
+        english=english,
+        crop=advice.crop_key,
+        crop_name_hi=advice.crop_name_hi,
+        crop_name_en=advice.crop_name_en,
+        location_name=request.location_name,
+        today=today_iso,
+        age_days=advice.age_days,
+        stage=advice.stage,
+        in_critical_window=advice.in_critical_window,
+        critical_window_label=advice.critical_window_label,
+        net_mm=advice.net_mm,
+        gross_mm=advice.gross_mm,
+        litres_per_acre=advice.litres_per_acre,
+        depletion_mm=advice.depletion_mm,
+        taw_mm=advice.taw_mm,
+        raw_mm=advice.raw_mm,
+        rain_next_24h_mm=advice.rain_next_24h_mm,
+        spray=AdvisoryWindow(
+            verdict=advice.spray.verdict,
+            reason_hi=advice.spray.reason_hi,
+            reason_en=advice.spray.reason_en,
+        ),
+        urea=AdvisoryWindow(
+            verdict=advice.urea.verdict,
+            reason_hi=advice.urea.reason_hi,
+            reason_en=advice.urea.reason_en,
+        ),
+        forecast=[
+            ForecastDayOut(
+                date=day.date,
+                et0_mm=day.et0_mm,
+                rain_mm=day.rain_mm,
+                rain_probability_pct=day.rain_probability_pct,
+                t_max_c=day.t_max_c,
+                t_min_c=day.t_min_c,
+                wind_max_kmh=day.wind_max_kmh,
+            )
+            for day in upcoming
+        ],
+        trace=[
+            DayTraceOut(
+                date=row.date.isoformat(),
+                age_days=row.age_days,
+                stage=row.stage,
+                kc=row.kc,
+                et0_mm=row.et0_mm,
+                etc_mm=row.etc_mm,
+                rain_mm=row.rain_mm,
+                effective_rain_mm=row.effective_rain_mm,
+                depletion_mm=row.depletion_end_mm,
+            )
+            for row in advice.trace
+        ],
+        assumptions=list(advice.assumptions),
+        sources=list(advice.sources),
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
