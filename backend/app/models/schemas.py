@@ -92,9 +92,29 @@ class AdviceRequest(BaseModel):
         default=None,
         ge=1,
         description=(
-            "How often the farmer usually irrigates, in days. Used only for a "
-            "comparison line in the narration; never in the calculation."
+            "How often the farmer usually irrigates, in days. Used for the "
+            "comparison line and as the 'every N days' of the savings habit; "
+            "never in the core water balance."
         ),
+    )
+    habit_mm_per_irrigation: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "How much water the farmer applies at each irrigation, in mm. With "
+            "usual_interval_days this enables the savings estimate. Omit it and "
+            "no savings are computed at all."
+        ),
+    )
+    pump_litres_per_hour: float | None = Field(
+        default=None,
+        gt=0,
+        description="Pump discharge, litres per hour. Needed for hours and rupees.",
+    )
+    cost_per_pump_hour: float | None = Field(
+        default=None,
+        ge=0,
+        description="Running cost of the pump, rupees per hour. Needed for rupees.",
     )
 
 
@@ -116,6 +136,30 @@ class ForecastDayOut(BaseModel):
     t_max_c: float
     t_min_c: float
     wind_max_kmh: float | None = None
+
+
+class SavingsOut(BaseModel):
+    """A comparison of the farmer's habit against the advised schedule.
+
+    Every field here is an estimate over the same real weather, and the UI
+    labels it as one. `money_saved` is null unless both pump figures were
+    supplied; `money_unavailable_reason` then says why in words.
+    """
+
+    window_start: str
+    window_end: str
+    habit_interval_days: int
+    habit_mm_per_irrigation: float
+    habit_total_mm: float
+    habit_irrigations: int
+    advised_total_mm: float
+    advised_irrigations: int
+    saved_mm: float
+    saved_litres_per_acre: int
+    pump_hours_saved: float | None = None
+    money_saved: float | None = None
+    money_unavailable_reason: str | None = None
+    assumptions: list[str]
 
 
 class DayTraceOut(BaseModel):
@@ -193,3 +237,8 @@ class AdviceResponse(BaseModel):
     assumptions: list[str]
     sources: list[str]
     generated_at: str
+
+    # Null when the farmer has not stated a habit to compare against. The UI
+    # then shows a prompt asking for it rather than a savings figure invented
+    # against an imaginary baseline.
+    savings: SavingsOut | None = None

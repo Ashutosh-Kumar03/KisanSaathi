@@ -304,6 +304,90 @@ def usual_interval_line(advice: Advice) -> tuple[str, str] | None:
     )
 
 
+SAVINGS_LABEL_HI = "अनुमान: आपकी अपनी आदत और मॉडल की सलाह की तुलना"
+SAVINGS_LABEL_EN = "Estimate: comparing your own habit with the model's advice"
+
+
+def savings_lines(savings) -> tuple[str, str]:
+    """Narrate the savings comparison, including the negative case.
+
+    A negative saving is reported as such rather than clamped to zero or hidden:
+    if the farmer's habit is already using less water than the advice would, that
+    is useful information and hiding it would make the whole panel untrustworthy.
+    """
+    if savings.saved_mm > 0:
+        hindi = (
+            f"आपकी आदत में {savings.habit_total_mm:.0f} मिमी पानी लगता "
+            f"({savings.habit_irrigations} बार), और सलाह से {savings.advised_total_mm:.0f} मिमी "
+            f"({savings.advised_irrigations} बार)। यानी करीब {savings.saved_mm:.0f} मिमी, "
+            f"यानी {format_indian(savings.saved_litres_per_acre)} लीटर प्रति एकड़ पानी बच सकता है।"
+        )
+        english = (
+            f"Your habit uses {savings.habit_total_mm:.0f} mm ({savings.habit_irrigations} "
+            f"irrigations); the advice uses {savings.advised_total_mm:.0f} mm "
+            f"({savings.advised_irrigations}). That is about {savings.saved_mm:.0f} mm — "
+            f"{format_indian(savings.saved_litres_per_acre)} litres per acre you could save."
+        )
+    elif savings.saved_mm == 0:
+        hindi = (
+            "आपकी आदत और सलाह से लगभग बराबर पानी लगता है — कोई ख़ास बचत नहीं दिख रही।"
+        )
+        english = (
+            "Your habit and the advice use about the same amount of water — no "
+            "meaningful saving either way."
+        )
+    else:
+        extra = abs(savings.saved_mm)
+        hindi = (
+            f"आपकी आदत में {savings.habit_total_mm:.0f} मिमी पानी लगता है, जो सलाह से "
+            f"करीब {extra:.0f} मिमी कम है। यानी आप पहले से कम पानी दे रहे हैं — "
+            "सलाह ज़्यादा पानी कह रही है।"
+        )
+        english = (
+            f"Your habit uses {savings.habit_total_mm:.0f} mm, about {extra:.0f} mm less "
+            f"than the advice. You are already applying less water than advised."
+        )
+
+    if savings.pump_hours_saved is not None and savings.money_saved is not None:
+        money = format_indian(int(round(savings.money_saved)))
+        hindi += (
+            f" पंप करीब {savings.pump_hours_saved:.1f} घंटे कम चलेगा, यानी करीब ₹{money} की बचत।"
+        )
+        english += (
+            f" The pump would run about {savings.pump_hours_saved:.1f} hours less — "
+            f"roughly ₹{money} saved."
+        )
+    return hindi, english
+
+
+def savings_money_reason(savings) -> tuple[str, str] | None:
+    """Why rupees are missing, in words, so the gap is explained not ignored."""
+    if savings.pump_hours_saved is not None:
+        return None
+    if savings.money_unavailable_reason == "both":
+        return (
+            "₹ की बचत दिखाने के लिए पंप की क्षमता (लीटर/घंटा) और प्रति घंटे की लागत, दोनों भरें।",
+            "To show savings in rupees, fill in both the pump discharge (litres/hour) "
+            "and the cost per hour.",
+        )
+    return (
+        "पंप और बिजली-डीज़ल की जानकारी नहीं दी गई, इसलिए बचत सिर्फ़ पानी में दिखाई गई है — "
+        "रुपये में नहीं।",
+        "No pump or fuel details were given, so the saving is shown in water only, "
+        "not in rupees.",
+    )
+
+
+def savings_prompt() -> tuple[str, str]:
+    """What to ask for when no habit is stated and no savings can be computed."""
+    return (
+        "बचत देखने के लिए बताइए: आप आमतौर पर कितने दिन में सिंचाई करते हैं और "
+        "हर बार कितना पानी देते हैं। ये दोनों भरे बिना कोई बचत नहीं दिखाई जा सकती।",
+        "To see your savings, tell us how often you usually irrigate and how much "
+        "water you apply each time. Without both, no saving can be shown.",
+    )
+
+
 def narrate(advice: Advice) -> tuple[str, str]:
     """Return (hindi, english) for an advice.
 

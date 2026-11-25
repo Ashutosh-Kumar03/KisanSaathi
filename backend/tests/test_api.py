@@ -114,6 +114,75 @@ def test_advice_rejects_an_irrigation_date_before_sowing():
     assert response.status_code == 422
 
 
+def test_advice_without_a_habit_returns_no_savings():
+    """No baseline, no figure: the UI is forced to prompt for the habit."""
+    response = client.post(
+        "/api/advice",
+        json={
+            "crop": "wheat",
+            "sowing_date": str(date.today() - timedelta(days=60)),
+            "latitude": 25.594,
+            "longitude": 85.136,
+        },
+    )
+    if response.status_code == 502:
+        pytest.skip("weather service unreachable")
+    assert response.status_code == 200
+    assert response.json()["savings"] is None
+
+
+def test_advice_with_a_habit_returns_real_savings():
+    response = client.post(
+        "/api/advice",
+        json={
+            "crop": "wheat",
+            "sowing_date": str(date.today() - timedelta(days=60)),
+            "latitude": 25.594,
+            "longitude": 85.136,
+            "usual_interval_days": 7,
+            "habit_mm_per_irrigation": 60,
+            "pump_litres_per_hour": 30000,
+            "cost_per_pump_hour": 120,
+        },
+    )
+    if response.status_code == 502:
+        pytest.skip("weather service unreachable")
+    assert response.status_code == 200
+    savings = response.json()["savings"]
+    assert savings is not None
+    assert savings["habit_interval_days"] == 7
+    assert savings["habit_total_mm"] > 0
+    assert savings["assumptions"], "every estimate must list what it rests on"
+    # The difference must equal the two schedules' totals.
+    assert savings["saved_mm"] == pytest.approx(
+        savings["habit_total_mm"] - savings["advised_total_mm"], abs=0.2
+    )
+    # Rupees only because both pump inputs were given.
+    assert savings["money_saved"] is not None
+    assert savings["pump_hours_saved"] is not None
+
+
+def test_advice_with_pump_hours_but_no_cost_omits_rupees():
+    response = client.post(
+        "/api/advice",
+        json={
+            "crop": "wheat",
+            "sowing_date": str(date.today() - timedelta(days=60)),
+            "latitude": 25.594,
+            "longitude": 85.136,
+            "usual_interval_days": 7,
+            "habit_mm_per_irrigation": 60,
+            "pump_litres_per_hour": 30000,
+        },
+    )
+    if response.status_code == 502:
+        pytest.skip("weather service unreachable")
+    assert response.status_code == 200
+    savings = response.json()["savings"]
+    assert savings["money_saved"] is None
+    assert savings["money_unavailable_reason"] == "both"
+
+
 def test_advice_rejects_an_unknown_soil():
     today = date.today()
     response = client.post(

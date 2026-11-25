@@ -248,6 +248,186 @@ def _judge_urea(days: list[EngineDay], today: date) -> ActionWindow:
     )
 
 
+@dataclass(frozen=True)
+class Savings:
+    """Two irrigation schedules run over the same real weather, compared.
+
+    An estimate, labelled as one wherever it appears. It compares what the
+    farmer says they do against what the engine would have advised, on
+    identical weather -- the only way the difference means anything, since
+    weather is the part neither of them controls.
+    """
+
+    window_start: date
+    window_end: date
+
+    habit_interval_days: int
+    habit_mm_per_irrigation: float
+    habit_total_mm: float
+    habit_irrigations: int
+
+    advised_total_mm: float
+    advised_irrigations: int
+
+    saved_mm: float
+    saved_litres_per_acre: int
+
+    # Present only when the farmer supplied both pump discharge and cost. None
+    # means the UI must show mm and litres and say why rupees are missing,
+    # rather than quietly leaving a gap the farmer cannot interpret.
+    pump_hours_saved: float | None
+    money_saved: float | None
+    money_unavailable_reason: str | None
+
+    assumptions: tuple[str, ...]
+
+
+def simulate_savings(
+    crop: CropRules,
+    sowing_date: date,
+    days: list[EngineDay],
+    soil: SoilType | None = None,
+    habit_interval_days: int | None = None,
+    habit_mm_per_irrigation: float | None = None,
+    pump_litres_per_hour: float | None = None,
+    cost_per_pump_hour: float | None = None,
+) -> Savings | None:
+    """Compare the farmer's habit against the engine's advice on the same weather.
+
+    Pure: no I/O, no clock. Both schedules are run over exactly the days handed
+    in, so the only thing that differs between them is when water is applied.
+
+    Without both habit inputs there is nothing to compare, and this returns None
+    rather than inventing a baseline. A savings figure against an imaginary
+    habit would be the most misleading number the app could show, so the UI is
+    forced to ask for the habit instead.
+
+    How each schedule is simulated:
+
+      * The habit waters every N days from sowing, applying X mm at the field
+        each time. Of that, X x efficiency reaches the root zone; the rest is
+        lost in application, exactly as the engine's own model assumes. Water
+        beyond what the soil can hold drains past the roots and is not stored.
+      * The advice waters only when depletion reaches the stress limit, and
+        applies exactly the gross amount needed to refill the root zone, so it
+        banks no percolation loss.
+
+    Comparing gross applied against gross applied is deliberate: the farmer
+    measures water at the pump, not in the root zone, so the difference is
+    quoted in the units they actually pay for.
+    """
+    if habit_interval_days is not None and habit_interval_days < 1:
+        raise EngineInputError("habit interval must be at least one day")
+    if habit_mm_per_irrigation is not None and habit_mm_per_irrigation < 0:
+        raise EngineInputError("habit amount cannot be negative")
+    # Validate each pump input on its own merits and before any early return: a
+    # discharge of zero is a caller error whether or not a habit was supplied,
+    # and silently returning None would hide a bad request behind "no habit".
+    if pump_litres_per_hour is not None and pump_litres_per_hour <= 0:
+        raise EngineInputError("pump discharge must be greater than zero")
+    if cost_per_pump_hour is not None and cost_per_pump_hour < 0:
+        raise EngineInputError("pump cost cannot be negative")
+    if not days:
+        raise EngineInputError("no weather days supplied")
+
+    # No baseline, no estimate. Returning None here is what forces the UI to ask
+    # for the habit instead of printing a saving against an imagined one.
+    if habit_interval_days is None or habit_mm_per_irrigation is None:
+        return None
+
+    soil = soil if soil is not None else crop_rules.LOAM
+    ordered = sorted(days, key=lambda d: d.date)
+    usable = [d for d in ordered if d.date >= sowing_date]
+    if not usable:
+        raise EngineInputError("weather data does not overlap the crop season")
+
+    taw = soil.available_water_mm_per_m * crop.root_depth_m.value
+    raw = crop.depletion_fraction.value * taw
+    efficiency = crop.application_efficiency.value
+
+    window_start = usable[0].date
+    window_end = usable[-1].date
+
+    def run(decide) -> tuple[float, int]:
+        """Run one schedule. `decide` returns gross mm to apply, or 0."""
+        depletion = 0.0
+        applied_total = 0.0
+        events = 0
+        for day in usable:
+            age = (day.date - sowing_date).days
+            kc = crop.kc_for_age(age)
+
+            apply_gross = decide(day, age, depletion)
+            if apply_gross > 0:
+                applied_total += apply_gross
+                events += 1
+                # Only what the soil can hold is stored; the rest percolates.
+                stored = min(apply_gross * efficiency, depletion)
+                depletion = max(0.0, depletion - stored)
+
+            depletion = depletion - day.rain_mm * RAIN_EFFECTIVENESS + kc * day.et0_mm
+            depletion = max(0.0, min(depletion, taw))
+        return applied_total, events
+
+    def habit_decide(day, age, depletion):
+        # Water on the habit's own cycle, regardless of what the soil needs.
+        if age > 0 and age % habit_interval_days == 0:
+            return habit_mm_per_irrigation
+        return 0.0
+
+    def advice_decide(day, age, depletion):
+        # Water only at the stress point, and only enough to refill.
+        if depletion >= raw:
+            return depletion / efficiency
+        return 0.0
+
+    habit_mm, habit_count = run(habit_decide)
+    advised_mm, advised_count = run(advice_decide)
+
+    saved_mm = round(habit_mm - advised_mm, 1)
+
+    # Pump figures only when both numbers are real. A discharge without a cost,
+    # or the reverse, cannot produce rupees; the reason is carried so the UI
+    # explains the gap in words rather than leaving it blank.
+    pump_hours_saved = None
+    money_saved = None
+    money_unavailable_reason = None
+    if pump_litres_per_hour is not None and cost_per_pump_hour is not None:
+        saved_litres = max(saved_mm, 0.0) * LITRES_PER_MM_ACRE
+        pump_hours_saved = round(saved_litres / pump_litres_per_hour, 1)
+        money_saved = round(pump_hours_saved * cost_per_pump_hour, 0)
+    elif pump_litres_per_hour is not None or cost_per_pump_hour is not None:
+        money_unavailable_reason = "both"
+    else:
+        money_unavailable_reason = "missing"
+
+    assumptions = (
+        "दोनों हिसाब उसी असली मौसम पर चलाए गए हैं, सिर्फ़ पानी देने का तरीका अलग है",
+        f"आपकी आदत: हर {habit_interval_days} दिन में {habit_mm_per_irrigation:.0f} मिमी पानी",
+        "बहाव/फ्लड सिंचाई, दक्षता 70% — दोनों हिसाबों में एक ही मानी गई है",
+        f"मिट्टी: {soil.name_hi} — उपलब्ध पानी {soil.available_water_mm_per_m:.0f} मिमी प्रति मीटर",
+        f"अवधि: {window_start.strftime('%d-%m-%Y')} से {window_end.strftime('%d-%m-%Y')} तक",
+        "मिट्टी उतना ही पानी रोक सकती है जितनी उसकी क्षमता है; बाकी जड़ों के नीचे बह जाता है",
+    )
+
+    return Savings(
+        window_start=window_start,
+        window_end=window_end,
+        habit_interval_days=habit_interval_days,
+        habit_mm_per_irrigation=round(habit_mm_per_irrigation, 1),
+        habit_total_mm=round(habit_mm, 1),
+        habit_irrigations=habit_count,
+        advised_total_mm=round(advised_mm, 1),
+        advised_irrigations=advised_count,
+        saved_mm=saved_mm,
+        saved_litres_per_acre=int(round(saved_mm * LITRES_PER_MM_ACRE)),
+        pump_hours_saved=pump_hours_saved,
+        money_saved=money_saved,
+        money_unavailable_reason=money_unavailable_reason,
+        assumptions=assumptions,
+    )
+
+
 def advise(
     crop: CropRules,
     sowing_date: date,

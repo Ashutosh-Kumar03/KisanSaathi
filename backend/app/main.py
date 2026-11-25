@@ -20,6 +20,7 @@ from .models.schemas import (
     DayTraceOut,
     ForecastDayOut,
     LocationSearchResponse,
+    SavingsOut,
     WeatherForecast,
 )
 from .services import irrigation, narration, openmeteo
@@ -177,6 +178,24 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
     hindi, english = narration.narrate(advice)
     headline_hi, headline_en = narration.headline(advice)
 
+    # Savings are computed from the same real weather the advice used, and only
+    # when the farmer has stated a habit. Without one this stays None and the UI
+    # asks for it: a savings figure against an imagined baseline would be the
+    # most misleading number the app could print.
+    try:
+        savings = irrigation.simulate_savings(
+            crop,
+            request.sowing_date,
+            engine_days,
+            soil=crop_rules.get_soil(request.soil) if request.soil else None,
+            habit_interval_days=request.usual_interval_days,
+            habit_mm_per_irrigation=request.habit_mm_per_irrigation,
+            pump_litres_per_hour=request.pump_litres_per_hour,
+            cost_per_pump_hour=request.cost_per_pump_hour,
+        )
+    except irrigation.EngineInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     # Only days from today onward are shown as "the forecast"; the days behind
     # today are working, not weather to plan around.
     today_iso = today.isoformat()
@@ -259,6 +278,26 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             else None
         ),
         usual_interval_days=advice.usual_interval_days,
+        savings=(
+            SavingsOut(
+                window_start=savings.window_start.isoformat(),
+                window_end=savings.window_end.isoformat(),
+                habit_interval_days=savings.habit_interval_days,
+                habit_mm_per_irrigation=savings.habit_mm_per_irrigation,
+                habit_total_mm=savings.habit_total_mm,
+                habit_irrigations=savings.habit_irrigations,
+                advised_total_mm=savings.advised_total_mm,
+                advised_irrigations=savings.advised_irrigations,
+                saved_mm=savings.saved_mm,
+                saved_litres_per_acre=savings.saved_litres_per_acre,
+                pump_hours_saved=savings.pump_hours_saved,
+                money_saved=savings.money_saved,
+                money_unavailable_reason=savings.money_unavailable_reason,
+                assumptions=list(savings.assumptions),
+            )
+            if savings is not None
+            else None
+        ),
         last_irrigation_date=(
             advice.last_irrigation_date.isoformat()
             if advice.last_irrigation_date

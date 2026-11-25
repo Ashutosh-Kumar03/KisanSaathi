@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import AdviceCard from './components/AdviceCard.jsx'
+import SavingsTab from './components/SavingsTab.jsx'
 import VillagePicker from './components/VillagePicker.jsx'
 import { ApiError, fetchAdvice } from './lib/api.js'
 import { loadLastAdvice, saveLastAdvice } from './lib/offline.js'
@@ -56,6 +57,10 @@ export default function App() {
   const [lastIrrigation, setLastIrrigation] = useState('')
   const [lastIrrigationMm, setLastIrrigationMm] = useState('')
   const [usualDays, setUsualDays] = useState('')
+  const [habitMm, setHabitMm] = useState('')
+  const [pumpLph, setPumpLph] = useState('')
+  const [pumpCost, setPumpCost] = useState('')
+  const [tab, setTab] = useState('advice')
   const [soil, setSoil] = useState('')
 
   const resultRef = useRef(null)
@@ -78,6 +83,9 @@ export default function App() {
         lastIrrigationDate: lastIrrigation || null,
         lastIrrigationMm: lastIrrigationMm === '' ? null : Number(lastIrrigationMm),
         usualIntervalDays: usualDays === '' ? null : Number(usualDays),
+        habitMmPerIrrigation: habitMm === '' ? null : Number(habitMm),
+        pumpLitresPerHour: pumpLph === '' ? null : Number(pumpLph),
+        costPerPumpHour: pumpCost === '' ? null : Number(pumpCost),
       })
       setAdvice(fresh)
       setSource('live')
@@ -250,7 +258,71 @@ export default function App() {
               onChange={(event) => setUsualDays(event.target.value)}
             />
             <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
-              सिर्फ़ तुलना के लिए — सलाह की गणना इससे नहीं बदलती।
+              सलाह की गणना इससे नहीं बदलती — यह सिर्फ़ तुलना और बचत के लिए है।
+            </p>
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="habit-mm">
+              हर सिंचाई में कितना पानी (मिमी)
+              <span className="notes" style={{ marginLeft: 'var(--space-1)' }}>
+                (वैकल्पिक)
+              </span>
+            </label>
+            <input
+              id="habit-mm"
+              className="input touch"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="1"
+              placeholder="जैसे: 60"
+              value={habitMm}
+              onChange={(event) => setHabitMm(event.target.value)}
+            />
+            <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+              बचत दिखाने के लिए यह और ऊपर के दिन — दोनों चाहिए। 1 इंच = 25.4 मिमी।
+            </p>
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="pump-lph">
+              पंप कितना पानी खींचता है (लीटर/घंटा)
+              <span className="notes" style={{ marginLeft: 'var(--space-1)' }}>
+                (वैकल्पिक)
+              </span>
+            </label>
+            <input
+              id="pump-lph"
+              className="input touch"
+              type="number"
+              inputMode="numeric"
+              min="1"
+              step="100"
+              placeholder="जैसे: 30000"
+              value={pumpLph}
+              onChange={(event) => setPumpLph(event.target.value)}
+            />
+            <label
+              className="field-label"
+              htmlFor="pump-cost"
+              style={{ marginTop: 'var(--space-2)' }}
+            >
+              पंप चलाने का खर्च (₹ प्रति घंटा)
+            </label>
+            <input
+              id="pump-cost"
+              className="input touch"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="10"
+              placeholder="जैसे: 120"
+              value={pumpCost}
+              onChange={(event) => setPumpCost(event.target.value)}
+            />
+            <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+              ये दोनों भरने पर रुपये में बचत दिखेगी; वरना सिर्फ़ पानी में।
             </p>
           </div>
 
@@ -290,11 +362,39 @@ export default function App() {
                 पुरानी सलाह — यह ताज़ा मौसम पर आधारित नहीं है। नई सलाह के लिए फिर कोशिश करें।
               </div>
             )}
-            <AdviceCard
-              advice={displayAdvice}
-              language={language}
-              onLanguageChange={setLanguage}
-            />
+
+            <div className="choices" role="tablist" aria-label="सलाह और बचत">
+              <button
+                type="button"
+                role="tab"
+                className="choice"
+                aria-selected={tab === 'advice'}
+                aria-pressed={tab === 'advice'}
+                onClick={() => setTab('advice')}
+              >
+                सलाह
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className="choice"
+                aria-selected={tab === 'savings'}
+                aria-pressed={tab === 'savings'}
+                onClick={() => setTab('savings')}
+              >
+                बचत
+              </button>
+            </div>
+
+            {tab === 'advice' ? (
+              <AdviceCard
+                advice={displayAdvice}
+                language={language}
+                onLanguageChange={setLanguage}
+              />
+            ) : (
+              <SavingsTab savings={displayAdvice.savings} language={language} />
+            )}
           </div>
         )}
       </main>

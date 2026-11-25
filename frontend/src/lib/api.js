@@ -70,7 +70,18 @@ export async function searchLocations(query) {
 }
 
 /** Ask for the one decision the app exists to give. */
-export async function fetchAdvice({ crop, sowingDate, location, soil, lastIrrigationDate, lastIrrigationMm, usualIntervalDays }) {
+export async function fetchAdvice({
+  crop,
+  sowingDate,
+  location,
+  soil,
+  lastIrrigationDate,
+  lastIrrigationMm,
+  usualIntervalDays,
+  habitMmPerIrrigation,
+  pumpLitresPerHour,
+  costPerPumpHour,
+}) {
   return request('/api/advice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -87,6 +98,9 @@ export async function fetchAdvice({ crop, sowingDate, location, soil, lastIrriga
       last_irrigation_date: lastIrrigationDate || null,
       last_irrigation_mm: lastIrrigationMm ?? null,
       usual_interval_days: usualIntervalDays ?? null,
+      habit_mm_per_irrigation: habitMmPerIrrigation ?? null,
+      pump_litres_per_hour: pumpLitresPerHour ?? null,
+      cost_per_pump_hour: costPerPumpHour ?? null,
     }),
   })
 }
