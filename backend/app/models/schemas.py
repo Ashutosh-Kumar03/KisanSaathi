@@ -88,6 +88,14 @@ class AdviceRequest(BaseModel):
             "the irrigation is assumed to refill the profile."
         ),
     )
+    usual_interval_days: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "How often the farmer usually irrigates, in days. Used only for a "
+            "comparison line in the narration; never in the calculation."
+        ),
+    )
 
 
 class AdvisoryWindow(BaseModel):
@@ -177,6 +185,10 @@ class AdviceResponse(BaseModel):
     next_irrigation_mm: float = 0.0
     next_irrigation_within_forecast: bool = False
     forecast_covered_until: str | None = None
+
+    # The farmer's usual gap between waterings, echoed back so the UI can render
+    # the comparison line. Purely presentational.
+    usual_interval_days: int | None = None
 
     assumptions: list[str]
     sources: list[str]

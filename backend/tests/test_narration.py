@@ -22,6 +22,7 @@ from app.services.narration import (
     narrate,
     next_irrigation_line,
     soil_line,
+    usual_interval_line,
 )
 
 SOWING = date(2026, 11, 1)
@@ -240,6 +241,54 @@ def _dry_days(today, span):
         EngineDay(SOWING + timedelta(days=i), 5.0, 0.0, 5.0)
         for i in range((today + timedelta(days=span) - SOWING).days + 1)
     ]
+
+
+def test_usual_interval_line_is_absent_when_no_habit_was_given():
+    advice = _advice(WHEAT, 20, 4.0)
+    assert advice.usual_interval_days is None
+    assert usual_interval_line(advice) is None
+
+
+@pytest.mark.parametrize(
+    "usual,gap_relation",
+    [(1, "later"), (60, "sooner")],
+)
+def test_usual_interval_line_compares_both_ways(usual, gap_relation):
+    today = SOWING + timedelta(days=20)
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 4.0, 0.0, 5.0)
+        for i in range((today + timedelta(days=12) - SOWING).days + 1)
+    ]
+    advice = advise(WHEAT, SOWING, today, days, usual_interval_days=usual)
+    assert advice.next_irrigation_date is not None
+
+    line = usual_interval_line(advice)
+    assert line is not None
+    hindi, english = line
+    assert str(usual) in hindi and str(usual) in english
+    assert any("\u0900" <= ch <= "\u097F" for ch in hindi)
+    if gap_relation == "later":
+        assert "रुकना" in hindi
+        assert "longer" in english
+    else:
+        assert "जल्दी" in hindi
+        assert "sooner" in english
+
+
+def test_usual_interval_line_agrees_when_the_gap_matches():
+    today = SOWING + timedelta(days=20)
+    days = [
+        EngineDay(SOWING + timedelta(days=i), 4.0, 0.0, 5.0)
+        for i in range((today + timedelta(days=12) - SOWING).days + 1)
+    ]
+    probe = advise(WHEAT, SOWING, today, days)
+    assert probe.next_irrigation_date is not None
+    gap = (probe.next_irrigation_date - today).days
+
+    advice = advise(WHEAT, SOWING, today, days, usual_interval_days=gap)
+    hindi, english = usual_interval_line(advice)
+    assert "मेल खाते" in hindi
+    assert "agree" in english.lower()
 
 
 def test_critical_window_is_mentioned_when_active():

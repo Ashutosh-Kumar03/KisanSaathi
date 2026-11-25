@@ -152,6 +152,11 @@ class Advice:
     next_irrigation_within_forecast: bool
     forecast_covered_until: date | None
 
+    # The farmer's own usual gap between waterings. Carried through for the
+    # comparison line only and never read by any arithmetic above: it is
+    # context for the farmer, not an input to the balance.
+    usual_interval_days: int | None
+
     # The date the balance was reset by a known irrigation, or None when the
     # farmer did not say. Surfaced to the UI because an unstated assumption
     # about soil moisture is exactly the kind of thing that should be visible.
@@ -252,6 +257,7 @@ def advise(
     last_irrigation_date: date | None = None,
     last_irrigation_mm: float | None = None,
     soil: SoilType | None = None,
+    usual_interval_days: int | None = None,
 ) -> Advice:
     """Compute today's irrigation decision plus the per-day working behind it.
 
@@ -282,6 +288,8 @@ def advise(
             raise EngineInputError("last irrigation amount cannot be negative")
         if last_irrigation_date is None:
             raise EngineInputError("last irrigation amount needs a last irrigation date")
+    if usual_interval_days is not None and usual_interval_days < 1:
+        raise EngineInputError("usual interval must be at least one day")
 
     # An unset soil is loam, but the advice says so rather than letting the
     # farmer believe their own soil was used.
@@ -527,6 +535,7 @@ def advise(
         next_irrigation_mm=_round(next_irrigation_mm),
         next_irrigation_within_forecast=next_irrigation_date is not None,
         forecast_covered_until=forecast_covered_until,
+        usual_interval_days=usual_interval_days,
         last_irrigation_date=last_irrigation_date,
         last_irrigation_mm=last_irrigation_mm,
         last_irrigation_effective_mm=_round(irrigation_absorbed_mm, 1),

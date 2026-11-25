@@ -554,6 +554,51 @@ def test_next_irrigation_never_exceeds_the_stress_point_water():
     assert advice.next_irrigation_mm >= advice.raw_mm - 0.05
 
 
+# --- usual interval between irrigations -----------------------------------
+
+
+def test_usual_interval_never_changes_the_calculation():
+    """The habit is a comparison for the farmer, not an input to the balance."""
+    today = SOWING + timedelta(days=20)
+    days = dry(today + timedelta(days=12))
+
+    without = advise(WHEAT, SOWING, today, days)
+    with_habit = advise(WHEAT, SOWING, today, days, usual_interval_days=12)
+
+    # Every computed figure must be identical.
+    for field_name in (
+        "action",
+        "net_mm",
+        "gross_mm",
+        "litres_per_acre",
+        "depletion_mm",
+        "taw_mm",
+        "raw_mm",
+        "next_irrigation_date",
+        "next_irrigation_mm",
+    ):
+        assert getattr(without, field_name) == getattr(with_habit, field_name), field_name
+
+    # And the whole daily trace, day by day.
+    assert [(r.date, r.depletion_end_mm) for r in without.trace] == [
+        (r.date, r.depletion_end_mm) for r in with_habit.trace
+    ]
+
+    # Only the carried-through habit differs.
+    assert without.usual_interval_days is None
+    assert with_habit.usual_interval_days == 12
+
+
+@pytest.mark.parametrize("bad", [0, -3])
+def test_rejects_a_meaningless_usual_interval(bad):
+    today = SOWING + timedelta(days=20)
+    with pytest.raises(EngineInputError) as exc:
+        advise(
+            WHEAT, SOWING, today, dry(today + timedelta(days=3)), usual_interval_days=bad
+        )
+    assert "at least one day" in str(exc.value)
+
+
 # --- inputs the engine must refuse ----------------------------------------
 
 

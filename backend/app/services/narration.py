@@ -262,6 +262,48 @@ def next_irrigation_line(advice: Advice) -> tuple[str, str]:
     )
 
 
+def usual_interval_line(advice: Advice) -> tuple[str, str] | None:
+    """Compare the projected gap with the farmer's own habit.
+
+    Presentation only. This number never enters the balance — the engine's
+    arithmetic is the same whether or not the farmer states a habit, and a test
+    asserts exactly that. It exists because a farmer who always waters every 12
+    days and is now being told to wait 18 is more likely to trust the advice if
+    the difference is named than if it is left for them to notice.
+
+    Returns None when no habit was given, so the UI can omit the line rather
+    than print a comparison against nothing.
+    """
+    if advice.usual_interval_days is None or advice.next_irrigation_date is None:
+        return None
+
+    gap = (advice.next_irrigation_date - advice.today).days
+    usual = advice.usual_interval_days
+
+    if gap == usual:
+        return (
+            f"आप आमतौर पर हर {usual} दिन में सिंचाई करते हैं, और यह सलाह भी करीब "
+            f"{gap} दिन कहती है — दोनों मेल खाते हैं।",
+            f"You usually irrigate every {usual} days and this advice also points to "
+            f"about {gap} — the two agree.",
+        )
+
+    if gap > usual:
+        return (
+            f"आप आमतौर पर हर {usual} दिन में सिंचाई करते हैं, पर इस बार सलाह करीब "
+            f"{gap} दिन कहती है — यानी इस बार थोड़ा रुकना बेहतर है।",
+            f"You usually irrigate every {usual} days, but this time the advice points "
+            f"to about {gap} — waiting a little longer is better here.",
+        )
+
+    return (
+        f"आप आमतौर पर हर {usual} दिन में सिंचाई करते हैं, पर इस बार सलाह करीब "
+        f"{gap} दिन कहती है — यानी इस बार जल्दी पानी की ज़रूरत है।",
+        f"You usually irrigate every {usual} days, but this time the advice points to "
+        f"about {gap} — water is needed sooner than usual.",
+    )
+
+
 def narrate(advice: Advice) -> tuple[str, str]:
     """Return (hindi, english) for an advice.
 

@@ -168,6 +168,7 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             engine_days,
             last_irrigation_date=request.last_irrigation_date,
             last_irrigation_mm=request.last_irrigation_mm,
+            usual_interval_days=request.usual_interval_days,
             soil=crop_rules.get_soil(request.soil) if request.soil else None,
         )
     except irrigation.EngineInputError as exc:
@@ -257,6 +258,7 @@ async def post_advice(request: AdviceRequest) -> AdviceResponse:
             if advice.forecast_covered_until
             else None
         ),
+        usual_interval_days=advice.usual_interval_days,
         last_irrigation_date=(
             advice.last_irrigation_date.isoformat()
             if advice.last_irrigation_date

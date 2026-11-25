@@ -55,6 +55,7 @@ export default function App() {
   const [language, setLanguage] = useState('hi')
   const [lastIrrigation, setLastIrrigation] = useState('')
   const [lastIrrigationMm, setLastIrrigationMm] = useState('')
+  const [usualDays, setUsualDays] = useState('')
   const [soil, setSoil] = useState('')
 
   const resultRef = useRef(null)
@@ -76,6 +77,7 @@ export default function App() {
         soil: soil || null,
         lastIrrigationDate: lastIrrigation || null,
         lastIrrigationMm: lastIrrigationMm === '' ? null : Number(lastIrrigationMm),
+        usualIntervalDays: usualDays === '' ? null : Number(usualDays),
       })
       setAdvice(fresh)
       setSource('live')
@@ -227,6 +229,29 @@ export default function App() {
                 करीब {(Number(lastIrrigationMm) / 25.4).toFixed(1)} इंच
               </p>
             )}
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="usual-days">
+              आमतौर पर कितने दिन में सिंचाई करते हैं
+              <span className="notes" style={{ marginLeft: 'var(--space-1)' }}>
+                (वैकल्पिक)
+              </span>
+            </label>
+            <input
+              id="usual-days"
+              className="input touch"
+              type="number"
+              inputMode="numeric"
+              min="1"
+              step="1"
+              placeholder="जैसे: 12"
+              value={usualDays}
+              onChange={(event) => setUsualDays(event.target.value)}
+            />
+            <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
+              सिर्फ़ तुलना के लिए — सलाह की गणना इससे नहीं बदलती।
+            </p>
           </div>
 
           <button

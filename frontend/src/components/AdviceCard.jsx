@@ -175,6 +175,31 @@ export default function AdviceCard({ advice, language, onLanguageChange }) {
         <p className="notes" style={{ margin: 'var(--space-1) 0 0' }}>
           यह सिर्फ़ उपलब्ध पूर्वानुमान के दिनों तक का अनुमान है — उससे आगे का अंदाज़ा नहीं लगाया गया।
         </p>
+        {advice.usual_interval_days != null && advice.next_irrigation_date != null && (
+          <p style={{ margin: 'var(--space-2) 0 0', fontSize: 'var(--text-sm)' }}>
+            {(() => {
+              const gap = Math.round(
+                (new Date(advice.next_irrigation_date + 'T00:00:00') -
+                  new Date(advice.today + 'T00:00:00')) /
+                  86400000,
+              )
+              const usual = advice.usual_interval_days
+              if (gap === usual) {
+                return language === 'hi'
+                  ? `आप आमतौर पर हर ${usual} दिन में सिंचाई करते हैं, और यह सलाह भी करीब ${gap} दिन कहती है।`
+                  : `You usually irrigate every ${usual} days, and this advice also points to about ${gap}.`
+              }
+              if (gap > usual) {
+                return language === 'hi'
+                  ? `आप आमतौर पर हर ${usual} दिन में सिंचाई करते हैं, पर इस बार करीब ${gap} दिन कहा जा रहा है — थोड़ा रुकना बेहतर है।`
+                  : `You usually irrigate every ${usual} days, but this time it is about ${gap} — waiting a little longer is better.`
+              }
+              return language === 'hi'
+                ? `आप आमतौर पर हर ${usual} दिन में सिंचाई करते हैं, पर इस बार करीब ${gap} दिन — जल्दी पानी की ज़रूरत है।`
+                : `You usually irrigate every ${usual} days, but this time it is about ${gap} — water is needed sooner than usual.`
+            })()}
+          </p>
+        )}
       </section>
 
       <section className="card" aria-labelledby="inputs-heading">
